@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM File Visualizer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1d23; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { text-align: center; font-size: 1.6rem; margin-bottom: 6px; color: #fff; }
+        .subtitle { text-align: center; color: #888; font-size: 0.9rem; margin-bottom: 20px; }
+        .upload-area { border: 2px dashed #444; border-radius: 10px; padding: 40px; text-align: center; background: #22262e; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 20px; }
+        .upload-area:hover, .upload-area.drag-over { border-color: #4a90d9; background: #262b35; }
+        .upload-area p { color: #888; margin-bottom: 12px; }
+        .upload-area button { padding: 8px 20px; background: #4a90d9; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+        .upload-area button:hover { background: #3a7bc8; }
+        #status { text-align: center; padding: 10px; color: #f0ad4e; font-size: 0.85rem; }
+        .error { color: #d9534f !important; }
+
+        /* Model summary */
+        .model-summary { background: #22262e; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+        .model-summary h2 { font-size: 1.3rem; margin-bottom: 12px; color: #fff; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+        .summary-item { background: #2a2f3a; border-radius: 6px; padding: 10px; }
+        .summary-item .label { display: block; font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .summary-item .value { display: block; font-size: 1rem; color: #fff; margin-top: 2px; font-weight: 600; }
+
+        /* Layer stack */
+        .layer-stack { display: flex; flex-direction: column; gap: 3px; }
+        .layer { background: #22262e; border-radius: 6px; overflow: hidden; }
+        .layer-header { cursor: pointer; }
+        .layer-bar { display: flex; align-items: center; padding: 10px 14px; min-height: 40px; border-radius: 6px; transition: opacity 0.15s; }
+        .layer-bar:hover { opacity: 0.85; }
+        .layer-label { font-weight: 600; font-size: 0.85rem; color: #fff; }
+        .layer-params { margin-left: auto; font-size: 0.8rem; color: rgba(255,255,255,0.7); font-family: monospace; }
+        .expand-icon { margin-left: 10px; font-size: 0.75rem; color: rgba(255,255,255,0.5); }
+
+        /* Subgroups */
+        .layer-detail { padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+        .subgroup { border-radius: 4px; overflow: hidden; }
+        .subgroup-bar { display: flex; align-items: center; padding: 7px 12px; border-radius: 4px; cursor: pointer; transition: opacity 0.15s; }
+        .subgroup-bar:hover { opacity: 0.85; }
+        .sg-label { font-size: 0.8rem; font-weight: 500; color: #fff; }
+        .sg-params { margin-left: auto; font-size: 0.75rem; color: rgba(255,255,255,0.6); font-family: monospace; }
+
+        /* Tensor list */
+        .tensor-list { padding: 4px 8px 6px; }
+        .tensor-item { display: flex; gap: 12px; align-items: center; padding: 3px 8px; font-size: 0.75rem; font-family: monospace; color: #aaa; border-bottom: 1px solid #2a2f3a; }
+        .tensor-item:last-child { border-bottom: none; }
+        .tensor-name { flex: 1; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tensor-shape { color: #6abf69; }
+        .tensor-type { color: #e6894a; min-width: 50px; text-align: right; }
+        .tensor-mem { color: #4ad9c7; min-width: 60px; text-align: right; font-size: 0.7rem; }
+
+        /* Attention Geometry */
+        .attn-geometry { display: flex; align-items: center; gap: 6px; padding: 8px 0 2px; flex-wrap: wrap; }
+        .attn-geo-item { font-size: 0.85rem; color: #ccc; }
+        .attn-geo-item strong { color: #e6894a; }
+        .attn-geo-sep { color: #555; font-size: 0.8rem; }
+
+        /* Dataflow Mini-Diagram */
+        .dataflow { display: flex; align-items: center; gap: 2px; padding: 8px 4px; overflow-x: auto; flex-wrap: wrap; }
+        .df-node { display: inline-block; padding: 3px 8px; border-radius: 4px; background: #2a3040; color: #ccc; font-size: 0.72rem; font-family: monospace; white-space: nowrap; }
+        .df-residual { background: #3a2a20; color: #e6894a; font-weight: bold; }
+        .df-arrow { color: #555; font-size: 0.7rem; }
+
+        /* Quantization Breakdown */
+        .quant-breakdown { padding: 6px 0; }
+        .quant-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 4px; }
+        .quant-segment { min-width: 2px; transition: opacity 0.15s; }
+        .quant-segment:hover { opacity: 0.7; }
+        .quant-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+        .quant-label { font-size: 0.7rem; color: #999; display: flex; align-items: center; gap: 3px; }
+        .quant-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+        /* Shape Diagram */
+        .shape-diagram { padding: 6px 0; display: flex; flex-direction: column; gap: 3px; }
+        .shape-row { display: flex; align-items: center; gap: 8px; }
+        .shape-name { font-size: 0.7rem; color: #888; font-family: monospace; min-width: 80px; text-align: right; }
+        .shape-rect { background: #2a3a50; border-radius: 3px; padding: 2px 8px; min-height: 18px; display: flex; align-items: center; }
+        .shape-dims { font-size: 0.68rem; color: #6abf69; font-family: monospace; white-space: nowrap; }
+
+        .hidden { display: none !important; }
+
+        /* Ollama picker */
+        .ollama-section { background: #22262e; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+        .ollama-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .ollama-header h3 { font-size: 0.95rem; color: #fff; margin: 0; }
+        .ollama-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; background: #2a5a2a; color: #6abf69; font-weight: 600; }
+        .ollama-badge.offline { background: #5a2a2a; color: #d9534f; }
+        .ollama-models { display: flex; flex-wrap: wrap; gap: 8px; }
+        .ollama-model-card { background: #2a2f3a; border: 1px solid #3a3f4b; border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: border-color 0.2s, background 0.2s; min-width: 180px; flex: 0 1 auto; }
+        .ollama-model-card:hover { border-color: #4a90d9; background: #2f3544; }
+        .ollama-model-card.selected { border-color: #4a90d9; background: #283148; }
+        .ollama-model-name { font-weight: 600; font-size: 0.85rem; color: #fff; margin-bottom: 4px; }
+        .ollama-model-meta { font-size: 0.7rem; color: #888; display: flex; gap: 8px; }
+        .ollama-model-meta span { display: inline-flex; align-items: center; gap: 3px; }
+        .ollama-empty { color: #666; font-size: 0.85rem; font-style: italic; }
+        .divider { text-align: center; color: #555; font-size: 0.8rem; margin: 4px 0 16px; text-transform: uppercase; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LLM Visualizer</h1>
+        <p class="subtitle">Upload a GGUF file to visualize its internal structure</p>
+
+        <div class="ollama-section" id="ollamaSection">
+            <div class="ollama-header">
+                <h3>🦙 Ollama Models</h3>
+                <span class="ollama-badge" id="ollamaBadge">checking…</span>
+            </div>
+            <div class="ollama-models" id="ollamaModels">
+                <span class="ollama-empty">Detecting Ollama…</span>
+            </div>
+        </div>
+
+        <div class="divider">— or upload a file —</div>
+
+        <div class="upload-area" id="dropArea">
+            <p>Drag & drop a <strong>.gguf</strong> file here, or click to browse</p>
+            <input type="file" id="fileInput" style="display:none" accept=".gguf">
+            <button id="browseBtn">Select GGUF File</button>
+        </div>
+
+        <div id="status"></div>
+        <div id="visualization"></div>
+    </div>
+
+    <script type="module">
+        import { parseGGUF } from './src/parsers/gguf.js';
+        import { analyzeModel } from './src/model/analyzer.js';
+        import { renderLayerStack } from './src/viz/layer-stack.js';
+        import { OllamaClient } from './src/ollama/client.js';
+        import { adaptOllamaModel } from './src/model/ollama-adapter.js';
+
+        const dropArea = document.getElementById('dropArea');
+        const fileInput = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const viz = document.getElementById('visualization');
+        const ollamaBadge = document.getElementById('ollamaBadge');
+        const ollamaModelsEl = document.getElementById('ollamaModels');
+
+        const ollama = new OllamaClient();
+
+        // --- Ollama integration ---
+        async function initOllama() {
+            const available = await ollama.isAvailable();
+            if (!available) {
+                ollamaBadge.textContent = 'offline';
+                ollamaBadge.className = 'ollama-badge offline';
+                ollamaModelsEl.innerHTML = '<span class="ollama-empty">Ollama not detected. Start Ollama to see your models here.</span>';
+                return;
+            }
+
+            ollamaBadge.textContent = 'connected';
+            ollamaBadge.className = 'ollama-badge';
+
+            try {
+                const models = await ollama.listModels();
+                if (models.length === 0) {
+                    ollamaModelsEl.innerHTML = '<span class="ollama-empty">No models downloaded. Run <code>ollama pull</code> to get started.</span>';
+                    return;
+                }
+                renderModelCards(models);
+            } catch (err) {
+                ollamaModelsEl.innerHTML = `<span class="ollama-empty">Error loading models: ${err.message}</span>`;
+            }
+        }
+
+        function formatSize(bytes) {
+            if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+            if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB';
+            return bytes + ' B';
+        }
+
+        function renderModelCards(models) {
+            ollamaModelsEl.innerHTML = '';
+            for (const m of models) {
+                const card = document.createElement('div');
+                card.className = 'ollama-model-card';
+                card.innerHTML = `
+                    <div class="ollama-model-name">${m.name}</div>
+                    <div class="ollama-model-meta">
+                        <span>${m.parameterSize}</span>
+                        <span>${m.quantizationLevel}</span>
+                        <span>${formatSize(m.size)}</span>
+                    </div>
+                `;
+                card.addEventListener('click', () => loadOllamaModel(m.name, card));
+                ollamaModelsEl.appendChild(card);
+            }
+        }
+
+        async function loadOllamaModel(modelName, card) {
+            // Deselect all cards, select this one
+            ollamaModelsEl.querySelectorAll('.ollama-model-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+
+            status.textContent = `Loading ${modelName} from Ollama...`;
+            status.className = '';
+            viz.innerHTML = '';
+
+            try {
+                const showData = await ollama.showModel(modelName);
+                status.textContent = 'Analyzing model structure...';
+                const model = adaptOllamaModel(modelName, showData);
+                status.textContent = '';
+                renderLayerStack(viz, model);
+            } catch (err) {
+                status.textContent = `Error: ${err.message}`;
+                status.className = 'error';
+                console.error(err);
+            }
+        }
+
+        // Kick off Ollama detection
+        initOllama();
+
+        // --- File upload (existing) ---
+        document.getElementById('browseBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.click();
+        });
+        dropArea.addEventListener('click', () => fileInput.click());
+
+        ['dragenter','dragover','dragleave','drop'].forEach(e => dropArea.addEventListener(e, ev => { ev.preventDefault(); ev.stopPropagation(); }));
+        ['dragenter','dragover'].forEach(e => dropArea.addEventListener(e, () => dropArea.classList.add('drag-over')));
+        ['dragleave','drop'].forEach(e => dropArea.addEventListener(e, () => dropArea.classList.remove('drag-over')));
+
+        dropArea.addEventListener('drop', e => processFile(e.dataTransfer.files[0]));
+        fileInput.addEventListener('change', () => { if (fileInput.files[0]) processFile(fileInput.files[0]); });
+
+        async function processFile(file) {
+            if (!file) return;
+            if (!file.name.endsWith('.gguf')) {
+                status.textContent = 'Please select a .gguf file';
+                status.className = 'error';
+                return;
+            }
+
+            // Deselect any Ollama card
+            ollamaModelsEl.querySelectorAll('.ollama-model-card').forEach(c => c.classList.remove('selected'));
+
+            status.textContent = `Reading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)...`;
+            status.className = '';
+            viz.innerHTML = '';
+
+            try {
+                const readSize = Math.min(file.size, 100 * 1024 * 1024);
+                const buffer = await file.slice(0, readSize).arrayBuffer();
+
+                status.textContent = 'Parsing GGUF header...';
+                const gguf = parseGGUF(buffer);
+
+                status.textContent = 'Analyzing model structure...';
+                const model = analyzeModel(gguf);
+
+                status.textContent = '';
+                renderLayerStack(viz, model);
+            } catch (err) {
+                status.textContent = `Error: ${err.message}`;
+                status.className = 'error';
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
