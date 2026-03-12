@@ -7,10 +7,17 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1d23; color: #e0e0e0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
+        .container { max-width: 1350px; margin: 0 auto; }
         h1 { text-align: center; font-size: 1.6rem; margin-bottom: 6px; color: #fff; }
         .subtitle { text-align: center; color: #888; font-size: 0.9rem; margin-bottom: 20px; }
-        .upload-area { border: 2px dashed #444; border-radius: 10px; padding: 40px; text-align: center; background: #22262e; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 20px; }
+        /* Source picker (tabbed: GGUF / Ollama) */
+        .source-picker { background: #22262e; border: 1px solid #2a2f3a; border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
+        .source-tabs { display: flex; border-bottom: 1px solid #2a2f3a; }
+        .source-tab { flex: 1; padding: 12px 16px; background: none; border: none; border-bottom: 2px solid transparent; color: #888; cursor: pointer; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.15s, color 0.15s; }
+        .source-tab:hover { background: #262b35; color: #ccc; }
+        .source-tab.active { background: #1e2530; color: #fff; border-bottom-color: #4a90d9; }
+        .source-tab-panel { padding: 20px; }
+        .upload-area { border: 2px dashed #444; border-radius: 10px; padding: 40px; text-align: center; background: #1e2530; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
         .upload-area:hover, .upload-area.drag-over { border-color: #4a90d9; background: #262b35; }
         .upload-area p { color: #888; margin-bottom: 12px; }
         .upload-area button { padding: 8px 20px; background: #4a90d9; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
@@ -168,24 +175,25 @@
 <body>
     <div class="container">
         <h1>LLM Visualizer</h1>
-        <p class="subtitle">Upload a GGUF file to visualize its internal structure</p>
+        <p class="subtitle">Visualize the internal structure of LLM models</p>
 
-        <div class="ollama-section" id="ollamaSection">
-            <div class="ollama-header">
-                <h3>🦙 Ollama Models</h3>
-                <span class="ollama-badge" id="ollamaBadge">checking…</span>
+        <div class="source-picker">
+            <div class="source-tabs">
+                <button class="source-tab active" id="tabBtnGguf">📁 GGUF File</button>
+                <button class="source-tab" id="tabBtnOllama">🦙 Ollama <span class="ollama-badge" id="ollamaBadge">checking…</span></button>
             </div>
-            <div class="ollama-models" id="ollamaModels">
-                <span class="ollama-empty">Detecting Ollama…</span>
+            <div class="source-tab-panel" id="tabGguf">
+                <div class="upload-area" id="dropArea">
+                    <p>Drag & drop a <strong>.gguf</strong> file here, or click to browse</p>
+                    <input type="file" id="fileInput" style="display:none" accept=".gguf">
+                    <button id="browseBtn">Select GGUF File</button>
+                </div>
             </div>
-        </div>
-
-        <div class="divider">— or upload a file —</div>
-
-        <div class="upload-area" id="dropArea">
-            <p>Drag & drop a <strong>.gguf</strong> file here, or click to browse</p>
-            <input type="file" id="fileInput" style="display:none" accept=".gguf">
-            <button id="browseBtn">Select GGUF File</button>
+            <div class="source-tab-panel hidden" id="tabOllama">
+                <div class="ollama-models" id="ollamaModels">
+                    <span class="ollama-empty">Detecting Ollama…</span>
+                </div>
+            </div>
         </div>
 
         <div id="status"></div>
@@ -205,6 +213,22 @@
         const viz = document.getElementById('visualization');
         const ollamaBadge = document.getElementById('ollamaBadge');
         const ollamaModelsEl = document.getElementById('ollamaModels');
+
+        // --- Source picker tabs ---
+        const tabBtnGguf = document.getElementById('tabBtnGguf');
+        const tabBtnOllama = document.getElementById('tabBtnOllama');
+        const tabGguf = document.getElementById('tabGguf');
+        const tabOllama = document.getElementById('tabOllama');
+
+        function switchTab(tab) {
+            const isGguf = tab === 'gguf';
+            tabBtnGguf.classList.toggle('active', isGguf);
+            tabBtnOllama.classList.toggle('active', !isGguf);
+            tabGguf.classList.toggle('hidden', !isGguf);
+            tabOllama.classList.toggle('hidden', isGguf);
+        }
+        tabBtnGguf.addEventListener('click', () => switchTab('gguf'));
+        tabBtnOllama.addEventListener('click', () => switchTab('ollama'));
 
         const ollama = new OllamaClient();
         const appState = {
