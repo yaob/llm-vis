@@ -144,6 +144,11 @@ export function analyzeModel(gguf) {
     arch, modelName, blockCount, embeddingLength, headCount, headCountKV, headDim, gqaRatio,
     contextLength, vocabSize,
     totalParams, totalMemory, layers, version: gguf.version,
+    ggufSource: gguf.source || null,
+    ggufInfo: {
+      alignment: gguf.alignment || 32,
+      tensorDataStart: Number.isFinite(gguf.tensorDataStart) ? gguf.tensorDataStart : null,
+    },
   };
 }
 

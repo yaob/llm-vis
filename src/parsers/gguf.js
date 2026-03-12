@@ -25,7 +25,7 @@ export const GGML_BLOCK_SIZES = {
 // Bytes per block for quantized types
 export const GGML_TYPE_SIZES = {
   0: 4, 1: 2, 2: 18, 3: 20, 6: 22, 7: 24, 8: 34, 9: 36,
-  10: 64, 11: 110, 12: 144, 13: 176, 14: 210, 15: 292,
+  10: 84, 11: 110, 12: 144, 13: 176, 14: 210, 15: 292,
   24: 1, 25: 2, 26: 4, 27: 8, 28: 8, 30: 2,
 };
 
@@ -35,6 +35,11 @@ export function computeTensorBytes(type, numElements) {
   const typeSize = GGML_TYPE_SIZES[type];
   if (blockSize == null || typeSize == null) return 0;
   return Math.ceil(numElements / blockSize) * typeSize;
+}
+
+function alignOffset(offset, alignment) {
+  if (!alignment || alignment <= 1) return offset;
+  return Math.ceil(offset / alignment) * alignment;
 }
 
 class GGUFReader {
@@ -119,6 +124,8 @@ export function parseGGUF(arrayBuffer) {
     metadata[key] = value;
   }
 
+  const alignment = Math.max(1, Number(metadata['general.alignment']) || 32);
+
   // Tensor infos
   const tensors = [];
   for (let i = 0; i < tensorCount; i++) {
@@ -129,13 +136,19 @@ export function parseGGUF(arrayBuffer) {
     const type = reader.readUint32();
     const offset = reader.readUint64();
     const numElements = dimensions.reduce((a, b) => a * b, 1);
+    const byteLength = computeTensorBytes(type, numElements);
     tensors.push({
       name, dimensions, type,
       typeName: GGML_TYPE_NAMES[type] || `unknown(${type})`,
-      offset, numElements,
+      offset, numElements, byteLength,
     });
   }
 
-  return { version, tensorCount, metadata, tensors };
+  const tensorDataStart = alignOffset(reader.offset, alignment);
+  for (const tensor of tensors) {
+    tensor.absoluteOffset = tensorDataStart + tensor.offset;
+  }
+
+  return { version, tensorCount, metadata, tensors, alignment, tensorDataStart };
 }
 

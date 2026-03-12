@@ -26,6 +26,71 @@
         .summary-item .label { display: block; font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
         .summary-item .value { display: block; font-size: 1rem; color: #fff; margin-top: 2px; font-weight: 600; }
 
+        /* View tabs */
+        .view-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .view-tab { padding: 8px 14px; background: #22262e; color: #aaa; border: 1px solid #3a3f4b; border-radius: 999px; cursor: pointer; font-size: 0.85rem; }
+        .view-tab:hover { border-color: #4a90d9; color: #fff; }
+        .view-tab.active { background: #283148; border-color: #4a90d9; color: #fff; cursor: default; }
+        .view-panel { display: flex; flex-direction: column; gap: 16px; }
+
+        /* Architecture view */
+        .architecture-view { display: flex; flex-direction: column; gap: 14px; }
+        .architecture-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .toolbar-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .toolbar-btn { padding: 7px 12px; background: #2a2f3a; border: 1px solid #3a3f4b; color: #ddd; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+        .toolbar-btn:hover { border-color: #4a90d9; color: #fff; }
+        .architecture-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; color: #999; font-size: 0.75rem; }
+        .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .legend-swatch { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+        .architecture-canvas { background: #22262e; border: 1px solid #2a2f3a; border-radius: 10px; overflow: hidden; min-height: 420px; }
+        .architecture-svg { display: block; width: 100%; background: linear-gradient(180deg, #20242c 0%, #1d2128 100%); touch-action: none; }
+        .architecture-inspector { background: #22262e; border-radius: 10px; padding: 18px; }
+        .architecture-inspector h3 { font-size: 1rem; color: #fff; margin-bottom: 12px; }
+        .inspector-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+        .inspector-card { background: #2a2f3a; border-radius: 8px; padding: 10px; }
+        .inspector-card .label { display: block; font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .inspector-card .value { display: block; margin-top: 4px; color: #fff; font-weight: 600; }
+        .inspector-note { color: #999; font-size: 0.85rem; }
+        .subgroup-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+        .subgroup-pill { background: #2a2f3a; border: 1px solid #3a3f4b; border-radius: 999px; padding: 6px 10px; font-size: 0.78rem; color: #ddd; }
+        .subgroup-pill strong { color: #fff; }
+        .attn-detail-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 4px; }
+        .attn-detail-table th { text-align: left; color: #7a8599; font-weight: 500; padding: 4px 8px; border-bottom: 1px solid #3a3f4b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.3px; }
+        .attn-detail-table td { padding: 5px 8px; color: #c6cfdd; border-bottom: 1px solid #2a2f3a; }
+        .selected-head-card { background: #252c38; border: 1px solid #384356; border-radius: 10px; padding: 12px; margin-top: 10px; }
+        .selected-head-card.placeholder { border-style: dashed; }
+        .selected-head-header { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+        .head-chip { display: inline-flex; align-items: center; padding: 4px 9px; border-radius: 999px; background: #2f3746; color: #eef3fb; font-size: 0.75rem; font-weight: 600; }
+        .head-chip.secondary { background: #273a4f; color: #9fc7ff; }
+        .selected-head-note { color: #9aa4b8; font-size: 0.82rem; line-height: 1.45; margin-bottom: 10px; }
+        .head-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+        .head-detail-item { background: #2a2f3a; border-radius: 8px; padding: 10px; }
+        .head-detail-item span { display: block; font-size: 0.68rem; color: #888; text-transform: uppercase; letter-spacing: 0.45px; }
+        .head-detail-item strong { display: block; margin-top: 4px; color: #fff; font-size: 0.86rem; line-height: 1.35; }
+        .selected-head-decode { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+        .head-decode-meta { color: #9aa4b8; font-size: 0.78rem; line-height: 1.45; }
+        .head-decode-status { border-radius: 8px; padding: 11px 12px; border: 1px solid #3a4658; background: #273140; display: flex; flex-direction: column; gap: 5px; }
+        .head-decode-status strong { color: #eef3fb; font-size: 0.82rem; }
+        .head-decode-status p { color: #a6b3c8; font-size: 0.78rem; line-height: 1.45; }
+        .head-decode-status.loading { background: #283242; border-color: #435671; }
+        .head-decode-status.unavailable { background: #312d23; border-color: #66553a; }
+        .head-decode-status.error { background: #3a2628; border-color: #7a4347; }
+        .head-warning-list { display: flex; flex-direction: column; gap: 6px; }
+        .head-warning-item { background: #312d23; border: 1px solid #66553a; color: #d9c9a5; border-radius: 8px; padding: 8px 10px; font-size: 0.76rem; line-height: 1.4; }
+        .head-heatmap-list { display: flex; flex-direction: column; gap: 12px; }
+        .head-heatmap-panel { background: #202733; border: 1px solid #384356; border-radius: 10px; padding: 12px; }
+        .head-heatmap-header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
+        .head-heatmap-header strong { display: block; color: #fff; font-size: 0.86rem; }
+        .head-heatmap-header span { display: block; margin-top: 4px; color: #93a0b4; font-size: 0.75rem; }
+        .head-heatmap-shape { color: #9fc7ff; font-size: 0.76rem; font-weight: 600; white-space: nowrap; }
+        .head-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-bottom: 10px; }
+        .head-stat-card { background: #28313f; border-radius: 8px; padding: 8px 9px; }
+        .head-stat-card span { display: block; font-size: 0.66rem; color: #8d99ad; text-transform: uppercase; letter-spacing: 0.4px; }
+        .head-stat-card strong { display: block; margin-top: 4px; color: #fff; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .head-heatmap-wrap { background: #151922; border: 1px solid #313b4d; border-radius: 8px; padding: 8px; overflow: auto; }
+        .head-heatmap-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+        .head-heatmap-caption { margin-top: 8px; color: #8f9bb0; font-size: 0.74rem; line-height: 1.4; }
+
         /* Layer stack */
         .layer-stack { display: flex; flex-direction: column; gap: 3px; }
         .layer { background: #22262e; border-radius: 6px; overflow: hidden; }
@@ -130,7 +195,7 @@
     <script type="module">
         import { parseGGUF } from './src/parsers/gguf.js';
         import { analyzeModel } from './src/model/analyzer.js';
-        import { renderLayerStack } from './src/viz/layer-stack.js';
+        import { renderModelView } from './src/viz/app-view.js';
         import { OllamaClient } from './src/ollama/client.js';
         import { adaptOllamaModel } from './src/model/ollama-adapter.js';
 
@@ -142,6 +207,51 @@
         const ollamaModelsEl = document.getElementById('ollamaModels');
 
         const ollama = new OllamaClient();
+        const appState = {
+            model: null,
+            activeView: 'architecture',
+            selectedLayerIndex: null,
+            selectedHead: null,
+            viewTransforms: { architecture: null },
+        };
+
+        function renderCurrentModel() {
+            if (!appState.model) return;
+            renderModelView(viz, appState.model, {
+                activeView: appState.activeView,
+                selectedLayerIndex: appState.selectedLayerIndex,
+                selectedHead: appState.selectedHead,
+                transform: appState.viewTransforms.architecture,
+                onInvalidate: () => renderCurrentModel(),
+                onViewChange: (viewId) => {
+                    appState.activeView = viewId;
+                    renderCurrentModel();
+                },
+                onSelectLayer: (layerIndex) => {
+                    appState.selectedLayerIndex = appState.selectedLayerIndex === layerIndex ? null : layerIndex;
+                    appState.selectedHead = null;
+                    renderCurrentModel();
+                },
+                onSelectHead: (headSelection) => {
+                    const sameSelection = appState.selectedHead
+                        && appState.selectedHead.kind === headSelection?.kind
+                        && appState.selectedHead.index === headSelection?.index;
+                    appState.selectedHead = sameSelection ? null : headSelection;
+                    renderCurrentModel();
+                },
+                onTransformChange: (transform) => {
+                    appState.viewTransforms.architecture = transform;
+                },
+            });
+        }
+
+        function showModel(model) {
+            appState.model = model;
+            appState.selectedLayerIndex = null;
+            appState.selectedHead = null;
+            appState.viewTransforms.architecture = null;
+            renderCurrentModel();
+        }
 
         // --- Ollama integration ---
         async function initOllama() {
@@ -206,7 +316,7 @@
                 status.textContent = 'Analyzing model structure...';
                 const model = adaptOllamaModel(modelName, showData);
                 status.textContent = '';
-                renderLayerStack(viz, model);
+                showModel(model);
             } catch (err) {
                 status.textContent = `Error: ${err.message}`;
                 status.className = 'error';
@@ -252,12 +362,13 @@
 
                 status.textContent = 'Parsing GGUF header...';
                 const gguf = parseGGUF(buffer);
+                gguf.source = file;
 
                 status.textContent = 'Analyzing model structure...';
                 const model = analyzeModel(gguf);
 
                 status.textContent = '';
-                renderLayerStack(viz, model);
+                showModel(model);
             } catch (err) {
                 status.textContent = `Error: ${err.message}`;
                 status.className = 'error';
