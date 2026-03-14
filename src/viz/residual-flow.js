@@ -138,6 +138,38 @@ function getHeadSelection(headInfo, selectedHead) {
   return { selectedQIndex: null, selectedKVIndex: null };
 }
 
+function formatDimsLabel(dims) {
+  const values = (dims || []).filter((value) => Number.isFinite(value) && value > 0);
+  return values.length ? `[${values.join(' × ')}]` : '—';
+}
+
+function getTensorRowCount(tensor) {
+  const dimensions = tensor?.dimensions || tensor?.shape || [];
+  const directRows = Number(dimensions[1]) || 0;
+  if (directRows > 0) return directRows;
+  const cols = Number(dimensions[0]) || 0;
+  const numElements = Number(tensor?.numElements) || 0;
+  if (!cols || !numElements) return 0;
+  const totalRows = Math.round(numElements / cols);
+  return Number.isFinite(totalRows) && totalRows > 0 ? totalRows : 0;
+}
+
+function createHeadCellButton(kind, index, label, selected, related, title, onSelect) {
+  const cell = document.createElement('button');
+  cell.type = 'button';
+  cell.className = `head-cell ${kind === 'q' ? 'q-head' : 'kv-head'}`;
+  if (selected) cell.classList.add('selected');
+  else if (related) cell.classList.add('related');
+  if (label !== undefined && label !== null) cell.textContent = `${label}`;
+  if (title) {
+    cell.title = title;
+    cell.setAttribute('aria-label', title);
+  }
+  cell.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  cell.addEventListener('click', () => onSelect?.({ kind, index }));
+  return cell;
+}
+
 function getSelectedHeadDetail(stage, selectedHead) {
   if (!stage?.headInfo?.headCount || !selectedHead) return null;
   const hi = stage.headInfo;
@@ -259,6 +291,33 @@ function getSelectedHeadDetail(stage, selectedHead) {
     };
   }
 
+  if (selectedHead.kind === 'wo') {
+    const outputRows = getTensorRowCount(ad?.output);
+    const previewRows = Math.min(outputRows || 0, 96);
+    const previewEnd = Math.max(0, previewRows - 1);
+    return {
+      title: 'Wo',
+      badge: 'Output projection',
+      note: previewRows && outputRows > previewRows
+        ? `Showing rows 0–${previewEnd} of Wo as a bounded preview so large output projections stay responsive.`
+        : 'Attention output projection applied after concatenating all head outputs.',
+      fields: [
+        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in attn_output` : 'attn_output' },
+        { label: 'Tensor shape', value: ad?.output?.shape?.length ? `[${ad.output.shape.join(' × ')}]` : '—' },
+        { label: 'Parameters', value: formatMaybeParams(ad?.output?.params) },
+        { label: 'Memory', value: formatMaybeBytes(ad?.output?.memoryBytes) },
+        { label: 'Quantization', value: ad?.output?.typeName || '—' },
+        { label: 'Heatmap preview', value: previewRows ? `${previewRows} of ${outputRows} rows` : 'Unavailable' },
+      ],
+      decodePlan: previewRows
+        ? {
+          cacheKey: `${stage.index}:wo`,
+          slices: [{ label: 'Wo projection', tensorLabel: 'attn_output', tensor: ad.output, rowStart: 0, rowCount: previewRows }],
+        }
+        : null,
+    };
+  }
+
   return null;
 }
 
@@ -332,7 +391,7 @@ function renderSelectedHeadDecode(host, model, selectedHeadDetail, onInvalidate)
   }
   const state = getHeadDecodeState(model, selectedHeadDetail.decodePlan, onInvalidate);
   if (state.status === 'loading') {
-    host.appendChild(createInfoBlock('head-decode-status loading', 'Decoding selected head…', 'Reading GGUF tensor bytes and dequantizing approximate weight values.'));
+    host.appendChild(createInfoBlock('head-decode-status loading', 'Decoding selected weights…', 'Reading GGUF tensor bytes and dequantizing approximate weight values.'));
     return;
   }
   if (state.status === 'error') {
@@ -448,6 +507,69 @@ function getHeadStructureLayout(headInfo, panelWidth) {
   };
 }
 
+function renderHTMLHeadGrid(container, headInfo, selectedHead, onSelectHead) {
+  if (!headInfo?.headCount) return;
+  const { selectedQIndex, selectedKVIndex } = getHeadSelection(headInfo, selectedHead);
+  const groups = getHeadGroups(headInfo);
+
+  const section = document.createElement('div');
+  section.className = 'head-grid-section';
+
+  const title = document.createElement('h5');
+  title.textContent = `${getAttentionTypeLabel(headInfo)}: ${headInfo.headCount} Q × ${headInfo.headDim}d → ${headInfo.headCountKV} KV`;
+  section.appendChild(title);
+
+  // Q heads
+  const qLabel = document.createElement('div');
+  qLabel.className = 'head-grid-label';
+  qLabel.textContent = `Q heads (${headInfo.headCount})`;
+  section.appendChild(qLabel);
+
+  const qGrid = document.createElement('div');
+  qGrid.className = 'head-grid';
+  for (let i = 0; i < headInfo.headCount; i++) {
+    qGrid.appendChild(createHeadCellButton(
+      'q',
+      i,
+      headInfo.headCount <= 128 ? i : null,
+      selectedQIndex === i,
+      selectedKVIndex === getKVGroupIndex(headInfo, i) && selectedQIndex !== i,
+      `Q head ${i} → KV head ${getKVGroupIndex(headInfo, i)}`,
+      onSelectHead,
+    ));
+  }
+  section.appendChild(qGrid);
+
+  // KV heads
+  const kvLabel = document.createElement('div');
+  kvLabel.className = 'head-grid-label';
+  kvLabel.textContent = `KV heads (${headInfo.headCountKV})`;
+  section.appendChild(kvLabel);
+
+  const kvGrid = document.createElement('div');
+  kvGrid.className = 'head-grid';
+  for (let i = 0; i < (headInfo.headCountKV || 1); i++) {
+    const group = groups[i];
+    kvGrid.appendChild(createHeadCellButton(
+      'kv',
+      i,
+      (headInfo.headCountKV || 1) <= 128 ? i : null,
+      selectedHead?.kind === 'kv' && selectedKVIndex === i,
+      selectedHead?.kind === 'q' && selectedKVIndex === i,
+      `KV head ${i} — serves Q heads ${formatHeadRange(group?.qStart, group?.qEnd)}`,
+      onSelectHead,
+    ));
+  }
+  section.appendChild(kvGrid);
+
+  const hint = document.createElement('div');
+  hint.className = 'head-grid-hint';
+  hint.textContent = 'Click any head cell—or the Wo node in the SVG wiring—to inspect tensor slices, params, and weight heatmaps.';
+  section.appendChild(hint);
+
+  container.appendChild(section);
+}
+
 function renderInspector(container, stage, model, selectedHead = null, uiState = {}) {
   if (!stage) {
     container.innerHTML = `
@@ -519,7 +641,7 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
           <div class="selected-head-header">
             <span class="head-chip">Selected head inspector</span>
           </div>
-          <p class="selected-head-note">Click a Q or KV head in the block detail panel to inspect its slice, group mapping, params, memory, and quantization.</p>
+          <p class="selected-head-note">Click a Q, KV, or Wo node in the SVG wiring diagram—or any head cell in the grid—to inspect its slice, mapping, params, memory, quantization, and weight heatmap.</p>
         </div>
       `;
     headHTML = `
@@ -531,6 +653,7 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
           <div class="inspector-card"><span class="label">Head Dim</span><span class="value">${hi.headDim}</span></div>
           <div class="inspector-card"><span class="label">GQA Ratio</span><span class="value">${hi.gqaRatio}:1</span></div>
         </div>
+        <div data-head-grid></div>
         ${selectedHeadHTML}
       </div>
     `;
@@ -548,6 +671,11 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
     ${attnHTML}
     ${headHTML}
   `;
+
+  const headGridHost = container.querySelector('[data-head-grid]');
+  if (headGridHost && hi?.headCount) {
+    renderHTMLHeadGrid(headGridHost, hi, selectedHead, uiState.onSelectHead || null);
+  }
 
   const decodeHost = container.querySelector('[data-head-decode]');
   if (decodeHost && selectedHeadDetail) {
@@ -614,6 +742,495 @@ function drawNodeBox(group, cx, cy, w, h, node) {
     }, `[${formatShape(node.detail.shape)}]`));
   }
   group.appendChild(g);
+}
+
+function drawFlowNode(group, cx, cy, width, height, options) {
+  const {
+    title,
+    subtitle = '',
+    fill = '#202a38',
+    stroke = '#4d607e',
+    titleFill = '#ffffff',
+    subtitleFill = '#9fb0c7',
+  } = options;
+  const node = svgElement('g');
+  node.appendChild(svgElement('rect', {
+    x: cx - width / 2,
+    y: cy - height / 2,
+    width,
+    height,
+    rx: 10,
+    fill,
+    stroke,
+    'stroke-width': 1.4,
+  }));
+  node.appendChild(svgElement('text', {
+    x: cx,
+    y: cy - (subtitle ? 3 : -4),
+    'text-anchor': 'middle',
+    'font-size': 10,
+    'font-weight': 700,
+    fill: titleFill,
+  }, title));
+  if (subtitle) {
+    node.appendChild(svgElement('text', {
+      x: cx,
+      y: cy + 11,
+      'text-anchor': 'middle',
+      'font-size': 8.5,
+      fill: subtitleFill,
+    }, subtitle));
+  }
+  group.appendChild(node);
+  return node;
+}
+
+function drawDimPill(group, cx, y, text, options = {}) {
+  if (!text) return;
+  const fill = options.fill || '#223247';
+  const stroke = options.stroke || '#4b6487';
+  const textFill = options.textFill || '#9fc7ff';
+  const width = Math.max(34, text.length * 5.8 + 12);
+  const height = 16;
+  group.appendChild(svgElement('rect', {
+    x: cx - width / 2,
+    y,
+    width,
+    height,
+    rx: 8,
+    fill,
+    stroke,
+    'stroke-width': 1,
+  }));
+  group.appendChild(svgElement('text', {
+    x: cx,
+    y: y + 11,
+    'text-anchor': 'middle',
+    'font-size': 8,
+    'font-weight': 600,
+    fill: textFill,
+  }, text));
+}
+
+function drawFlowConnector(group, points, options = {}) {
+  const pathData = points.map(([x, y], index) => `${index ? 'L' : 'M'} ${x} ${y}`).join(' ');
+  const attrs = {
+    d: pathData,
+    fill: 'none',
+    stroke: options.stroke || '#7f9ac7',
+    'stroke-width': options.strokeWidth || 1.6,
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    opacity: options.opacity || 0.95,
+  };
+  if (options.dash) attrs['stroke-dasharray'] = options.dash;
+  if (options.arrow !== false) attrs['marker-end'] = 'url(#architecture-arrowhead)';
+  group.appendChild(svgElement('path', attrs));
+}
+
+function drawCurvedConnector(group, start, end, options = {}) {
+  const [startX, startY] = start;
+  const [endX, endY] = end;
+  const controlOffset = options.controlOffset || Math.max(18, Math.abs(endX - startX) * 0.45);
+  const pathData = `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`;
+  const attrs = {
+    d: pathData,
+    fill: 'none',
+    stroke: options.stroke || '#7f9ac7',
+    'stroke-width': options.strokeWidth || 1.6,
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    opacity: options.opacity || 0.95,
+  };
+  if (options.dash) attrs['stroke-dasharray'] = options.dash;
+  if (options.arrow !== false) attrs['marker-end'] = 'url(#architecture-arrowhead)';
+  group.appendChild(svgElement('path', attrs));
+}
+
+function getSVGHeadWiringLayout(headInfo, panelWidth) {
+  if (!headInfo?.headCount) return null;
+  const rowEntries = Array.from({ length: headInfo.headCount }, (_, qIndex) => ({
+    qIndex,
+    kvIndex: getKVGroupIndex(headInfo, qIndex),
+  }));
+  const leftSectionWidth = 302;
+  const combineSectionWidth = 168;
+  const columnGap = 18;
+  const minBandWidth = 244;
+  const availableWidth = Math.max(minBandWidth, panelWidth - leftSectionWidth - combineSectionWidth - 32);
+  const columns = rowEntries.length > 12 && availableWidth >= minBandWidth * 2 + columnGap ? 2 : 1;
+  const rowsPerColumn = Math.ceil(rowEntries.length / columns);
+  const bandWidth = Math.floor((availableWidth - columnGap * (columns - 1)) / columns);
+  const bandHeight = 86;
+  const rowGap = 10;
+  const rowAreaHeight = rowsPerColumn * bandHeight + Math.max(0, rowsPerColumn - 1) * rowGap;
+  const mergeHeight = 0;
+  const totalHeight = rowAreaHeight + mergeHeight;
+
+  return {
+    rowEntries,
+    leftSectionWidth,
+    combineSectionWidth,
+    columnGap,
+    columns,
+    rowsPerColumn,
+    bandWidth,
+    bandHeight,
+    rowGap,
+    rowAreaHeight,
+    mergeHeight,
+    totalHeight,
+  };
+}
+
+function getDetailPanelMetrics(stage) {
+  const hasAttnDetail = stage.detailRows.some((row) => row.layout === 'attention-qkv');
+  const panelWidth = hasAttnDetail ? 1020 : 390;
+  const basePanelHeight = hasAttnDetail ? 260 : 240;
+  const wiringLayout = hasAttnDetail && stage.headInfo?.headCount
+    ? getSVGHeadWiringLayout(stage.headInfo, panelWidth)
+    : null;
+  const headDiagramHeight = wiringLayout ? 96 + wiringLayout.totalHeight : 0;
+
+  return {
+    hasAttnDetail,
+    panelWidth,
+    panelHeight: basePanelHeight + headDiagramHeight,
+  };
+}
+
+function drawSVGHeadWiring(group, stage, panelX, chartTopY, panelWidth, selectedHead, onSelectHead) {
+  const headInfo = stage.headInfo;
+  if (!headInfo?.headCount) return 0;
+
+  const { selectedQIndex, selectedKVIndex } = getHeadSelection(headInfo, selectedHead);
+  const layout = getSVGHeadWiringLayout(headInfo, panelWidth);
+  if (!layout) return 0;
+  const {
+    rowEntries,
+    leftSectionWidth,
+    combineSectionWidth,
+    columnGap,
+    columns,
+    rowsPerColumn,
+    bandWidth,
+    bandHeight,
+    rowGap,
+    rowAreaHeight,
+    mergeHeight,
+    totalHeight,
+  } = layout;
+  const inputDims = formatDimsLabel([headInfo.embeddingLength]);
+  const qDims = formatDimsLabel([headInfo.headCount, headInfo.headDim]);
+  const kvDims = formatDimsLabel([headInfo.headCountKV || 1, headInfo.headDim]);
+  const scoreDims = headInfo.contextLength
+    ? formatDimsLabel([headInfo.contextLength, headInfo.contextLength])
+    : '[ctx × ctx]';
+  const woSelected = selectedHead?.kind === 'wo';
+  const hasWoDetail = !!stage.attentionDetail?.output;
+
+  group.appendChild(svgElement('text', {
+    x: panelX + 20,
+    y: chartTopY,
+    'font-size': 10.5,
+    fill: '#c6cfdd',
+    'font-weight': 700,
+  }, 'Attention wiring'));
+  group.appendChild(svgElement('text', {
+    x: panelX + panelWidth - 20,
+    y: chartTopY,
+    'text-anchor': 'end',
+    'font-size': 9,
+    fill: '#7f8da3',
+  }, 'Per-head calculation flow'));
+
+  const layoutTopY = chartTopY + 18;
+  const inputCx = panelX + 76;
+  const inputCy = layoutTopY + rowAreaHeight / 2;
+  drawFlowNode(group, inputCx, inputCy, 114, 34, {
+    title: 'Input x',
+    subtitle: inputDims,
+    fill: '#24303d',
+    stroke: '#4f637c',
+  });
+
+  const projCx = panelX + 242;
+  const projWidth = 82;
+  const projHeight = 28;
+  const projFractions = rowAreaHeight < 150 ? [0.25, 0.5, 0.75] : [0.18, 0.5, 0.82];
+  const projections = [
+    { key: 'q', cx: projCx, cy: layoutTopY + rowAreaHeight * projFractions[0], title: 'Wq', stroke: COLORS.attention, outDims: qDims, subtitle: 'query slice' },
+    { key: 'k', cx: projCx, cy: layoutTopY + rowAreaHeight * projFractions[1], title: 'Wk', stroke: '#5fa8f2', outDims: kvDims, subtitle: 'key slice' },
+    { key: 'v', cx: projCx, cy: layoutTopY + rowAreaHeight * projFractions[2], title: 'Wv', stroke: '#78b8ff', outDims: kvDims, subtitle: 'value slice' },
+  ];
+  const projectionMap = Object.fromEntries(projections.map((projection) => [projection.key, projection]));
+
+  projections.forEach((projection) => {
+    drawCurvedConnector(group, [inputCx + 57, inputCy], [projection.cx - projWidth / 2, projection.cy], {
+      controlOffset: Math.max(24, (projection.cx - projWidth / 2 - (inputCx + 57)) * 0.42),
+    });
+    drawFlowNode(group, projection.cx, projection.cy, projWidth, projHeight, {
+      title: projection.title,
+      subtitle: projection.subtitle,
+      fill: '#1f2835',
+      stroke: projection.stroke,
+    });
+    drawDimPill(group, projection.cx, projection.cy - 33, inputDims);
+  });
+
+  const groupsStartX = panelX + leftSectionWidth;
+  const bridgeLabelY = chartTopY + 16;
+  group.appendChild(svgElement('text', {
+    x: groupsStartX,
+    y: bridgeLabelY,
+    'font-size': 10,
+    fill: '#c6cfdd',
+    'font-weight': 600,
+  }, 'One row per Q head: Q_i + K_g(i) → score_i → softmax_i → O_i → concat → Wo'));
+  group.appendChild(svgElement('text', {
+    x: panelX + panelWidth - 20,
+    y: bridgeLabelY,
+    'text-anchor': 'end',
+    'font-size': 8.8,
+    fill: '#7f8da3',
+  }, `${headInfo.headCount} Q heads • ${headInfo.headCountKV || 1} KV projections`));
+
+  const columnsLeftX = groupsStartX;
+  const columnsRightX = groupsStartX + columns * bandWidth + (columns - 1) * columnGap;
+  const concatY = layoutTopY + rowAreaHeight / 2;
+  const combineCenterX = columnsRightX + combineSectionWidth / 2;
+  const concatCx = combineCenterX - 44;
+  const woCx = combineCenterX + 44;
+  const combineLabelY = Math.max(bridgeLabelY + 12, concatY - 26);
+  const concatDims = formatDimsLabel([headInfo.headCount, headInfo.headDim]);
+
+  for (const rowEntry of rowEntries) {
+    const col = Math.floor(rowEntry.qIndex / rowsPerColumn);
+    const row = rowEntry.qIndex % rowsPerColumn;
+    const bandX = groupsStartX + col * (bandWidth + columnGap);
+    const bandY = layoutTopY + row * (bandHeight + rowGap);
+    const rowCenterY = bandY + bandHeight / 2;
+    const qSelected = selectedHead?.kind === 'q' && selectedQIndex === rowEntry.qIndex;
+    const kvSelected = selectedHead?.kind === 'kv' && selectedKVIndex === rowEntry.kvIndex;
+    const rowActive = qSelected || kvSelected;
+    const innerLeft = bandX + 12;
+    const innerRight = bandX + bandWidth - 22;
+    const qWidth = headInfo.headCount <= 64 ? 28 : 24;
+    const qHeight = 18;
+    const kvWidth = 30;
+    const kvHeight = 16;
+    const scoreWidth = 42;
+    const scoreHeight = 42;
+    const softmaxWidth = 54;
+    const outWidth = headInfo.headCount <= 64 ? 34 : 30;
+    const availableGap = innerRight - innerLeft - qWidth - scoreWidth - softmaxWidth - outWidth;
+    const segmentGap = clamp(Math.floor(availableGap / 3), 10, 34);
+    const contentWidth = qWidth + scoreWidth + softmaxWidth + outWidth + segmentGap * 3;
+    const startX = innerLeft + Math.max(0, Math.floor((innerRight - innerLeft - contentWidth) / 2));
+    const qX = startX;
+    const qY = rowCenterY - qHeight / 2;
+    const qRight = qX + qWidth;
+    const scoreX = qRight + segmentGap;
+    const scoreCx = scoreX + scoreWidth / 2;
+    const softmaxX = scoreX + scoreWidth + segmentGap;
+    const softmaxCx = softmaxX + softmaxWidth / 2;
+    const outX = softmaxX + softmaxWidth + segmentGap;
+    const outCx = outX + outWidth / 2;
+    const kX = scoreCx - kvWidth / 2;
+    const kY = bandY + 4;
+    const vX = outCx - kvWidth / 2;
+    const vY = bandY + bandHeight - kvHeight - 4;
+    const kCenterY = kY + kvHeight / 2;
+    const vCenterY = vY + kvHeight / 2;
+
+    group.appendChild(svgElement('rect', {
+      x: bandX,
+      y: bandY,
+      width: bandWidth,
+      height: bandHeight,
+      rx: 10,
+      fill: qSelected ? '#202d3d' : kvSelected ? '#1d2734' : '#1b2230',
+      stroke: qSelected ? COLORS.selected : kvSelected ? '#8db6e7' : '#313d50',
+      'stroke-width': qSelected ? 1.8 : kvSelected ? 1.35 : 1,
+    }));
+
+    drawCurvedConnector(group, [projectionMap.q.cx + projWidth / 2, projectionMap.q.cy], [qX, rowCenterY], {
+      arrow: false,
+      opacity: rowActive ? (qSelected ? 0.58 : 0.42) : 0.12,
+      strokeWidth: rowActive ? (qSelected ? 1.45 : 1.1) : 1,
+      stroke: rowActive ? '#f0a565' : '#67758b',
+      controlOffset: Math.max(22, (qX - (projectionMap.q.cx + projWidth / 2)) * 0.38),
+    });
+    drawCurvedConnector(group, [projectionMap.k.cx + projWidth / 2, projectionMap.k.cy], [kX, kCenterY], {
+      arrow: false,
+      dash: '4,3',
+      opacity: rowActive ? 0.46 : 0.12,
+      strokeWidth: rowActive ? 1.35 : 1,
+      stroke: rowActive ? '#78b8ff' : '#67758b',
+      controlOffset: Math.max(18, (kX - (projectionMap.k.cx + projWidth / 2)) * 0.45),
+    });
+    drawCurvedConnector(group, [projectionMap.v.cx + projWidth / 2, projectionMap.v.cy], [vX, vCenterY], {
+      arrow: false,
+      dash: '4,3',
+      opacity: rowActive ? 0.46 : 0.12,
+      strokeWidth: rowActive ? 1.35 : 1,
+      stroke: rowActive ? '#78b8ff' : '#67758b',
+      controlOffset: Math.max(18, (vX - (projectionMap.v.cx + projWidth / 2)) * 0.45),
+    });
+
+    drawFlowConnector(group, [
+      [qRight, rowCenterY],
+      [scoreX, rowCenterY],
+    ], {
+      arrow: false,
+      opacity: rowActive ? 0.84 : 0.28,
+      strokeWidth: rowActive ? 1.5 : 1.1,
+      stroke: rowActive ? '#8db6e7' : '#57667c',
+    });
+    drawFlowConnector(group, [
+      [scoreX + scoreWidth, rowCenterY],
+      [softmaxX, rowCenterY],
+    ], {
+      arrow: false,
+      opacity: rowActive ? 0.84 : 0.28,
+      strokeWidth: rowActive ? 1.5 : 1.1,
+      stroke: rowActive ? '#8db6e7' : '#57667c',
+    });
+    drawFlowConnector(group, [
+      [softmaxX + softmaxWidth, rowCenterY],
+      [outX, rowCenterY],
+    ], {
+      arrow: false,
+      opacity: rowActive ? 0.84 : 0.28,
+      strokeWidth: rowActive ? 1.5 : 1.1,
+      stroke: rowActive ? '#8db6e7' : '#57667c',
+    });
+    drawFlowConnector(group, [
+      [kX + kvWidth / 2, kY + kvHeight],
+      [scoreCx, rowCenterY],
+    ], {
+      arrow: false,
+      opacity: rowActive ? 0.84 : 0.28,
+      strokeWidth: rowActive ? 1.5 : 1.1,
+      stroke: rowActive ? '#8db6e7' : '#57667c',
+    });
+    drawFlowConnector(group, [
+      [vX + kvWidth / 2, vY],
+      [outCx, rowCenterY],
+    ], {
+      arrow: false,
+      opacity: rowActive ? 0.84 : 0.28,
+      strokeWidth: rowActive ? 1.5 : 1.1,
+      stroke: rowActive ? '#8db6e7' : '#57667c',
+    });
+    drawCurvedConnector(group, [outX + outWidth, rowCenterY], [concatCx - 31, concatY], {
+      arrow: false,
+      dash: '3,3',
+      opacity: rowActive ? 0.44 : 0.12,
+      strokeWidth: rowActive ? 1.25 : 1,
+      stroke: rowActive ? '#8db6e7' : '#57667c',
+      controlOffset: Math.max(22, (concatCx - 31 - (outX + outWidth)) * 0.36),
+    });
+
+    drawHeadCell(group, {
+      x: kX,
+      y: kY,
+      width: kvWidth,
+      height: kvHeight,
+      label: `K${rowEntry.kvIndex}`,
+      fill: '#4a90d9',
+      textSize: headInfo.headCount <= 64 ? 7 : 6.5,
+      title: `K input for Q head ${rowEntry.qIndex} (KV head ${rowEntry.kvIndex})`,
+      selected: kvSelected,
+      related: qSelected,
+      onClick: () => onSelectHead?.({ kind: 'kv', index: rowEntry.kvIndex }),
+    });
+    drawHeadCell(group, {
+      x: vX,
+      y: vY,
+      width: kvWidth,
+      height: kvHeight,
+      label: `V${rowEntry.kvIndex}`,
+      fill: '#5d9fe3',
+      textSize: headInfo.headCount <= 64 ? 7 : 6.5,
+      title: `V input for Q head ${rowEntry.qIndex} (KV head ${rowEntry.kvIndex})`,
+      selected: kvSelected,
+      related: qSelected,
+      onClick: () => onSelectHead?.({ kind: 'kv', index: rowEntry.kvIndex }),
+    });
+    drawHeadCell(group, {
+      x: qX,
+      y: qY,
+      width: qWidth,
+      height: qHeight,
+      label: `Q${rowEntry.qIndex}`,
+      fill: COLORS.attention,
+      textSize: headInfo.headCount <= 64 ? 7 : 6.5,
+      title: `Q head ${rowEntry.qIndex} uses KV head ${rowEntry.kvIndex}`,
+      selected: qSelected,
+      related: kvSelected,
+      onClick: () => onSelectHead?.({ kind: 'q', index: rowEntry.qIndex }),
+    });
+
+    drawFlowNode(group, scoreCx, rowCenterY, scoreWidth, scoreHeight, {
+      title: 'score',
+      subtitle: scoreDims,
+      fill: rowActive ? '#243244' : '#1f2734',
+      stroke: rowActive ? '#6b95c9' : '#495a71',
+      titleFill: rowActive ? '#f2f7ff' : '#dce5f3',
+    });
+    drawFlowNode(group, softmaxCx, rowCenterY, softmaxWidth, 18, {
+      title: 'softmax',
+      fill: rowActive ? '#253649' : '#1f2734',
+      stroke: rowActive ? '#6b95c9' : '#495a71',
+      titleFill: rowActive ? '#f2f7ff' : '#dce5f3',
+    });
+    drawFlowNode(group, outCx, rowCenterY, outWidth, 18, {
+      title: `O${rowEntry.qIndex}`,
+      fill: rowActive ? '#243244' : '#1f2734',
+      stroke: rowActive ? '#6b95c9' : '#495a71',
+      titleFill: rowActive ? '#f2f7ff' : '#dce5f3',
+    });
+  }
+
+  group.appendChild(svgElement('text', {
+    x: columnsRightX + combineSectionWidth / 2,
+    y: combineLabelY,
+    'text-anchor': 'middle',
+    'font-size': 8.8,
+    fill: '#7f8da3',
+  }, 'combine head outputs'));
+  drawDimPill(group, concatCx, concatY + 20, concatDims);
+  drawDimPill(group, woCx, concatY + 20, inputDims, woSelected
+    ? { fill: '#264059', stroke: COLORS.selected, textFill: '#d8ecff' }
+    : undefined);
+  drawFlowNode(group, concatCx, concatY, 62, 22, {
+    title: 'concat',
+    fill: '#223247',
+    stroke: '#6b95c9',
+  });
+  const woNode = drawFlowNode(group, woCx, concatY, 46, 22, {
+    title: 'Wo',
+    fill: woSelected ? '#24384f' : '#1f2835',
+    stroke: woSelected ? COLORS.selected : '#8b9bb4',
+    titleFill: woSelected ? '#f2f8ff' : '#ffffff',
+  });
+  if (hasWoDetail) {
+    woNode.style.cursor = 'pointer';
+    woNode.addEventListener('click', () => onSelectHead?.({ kind: 'wo' }));
+    woNode.appendChild(svgElement('title', {}, 'Inspect Wo projection heatmap'));
+  }
+  drawFlowConnector(group, [
+    [concatCx + 31, concatY],
+    [woCx - 23, concatY],
+  ], {
+    arrow: false,
+    opacity: woSelected ? 0.9 : 0.74,
+    strokeWidth: woSelected ? 1.7 : 1.35,
+    stroke: woSelected ? COLORS.selected : '#8db6e7',
+  });
+
+  return 30 + totalHeight;
 }
 
 function drawAttentionPath(group, detail, panelX, mainY, panelWidth) {
@@ -969,14 +1586,10 @@ function drawHeadGrid(group, headInfo, panelX, gridTopY, panelWidth, selectedHea
 }
 
 function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSelectHead = null) {
-  const hasAttnDetail = stage.detailRows.some(r => r.layout === 'attention-qkv');
-  const hasHeadGrid = !!(stage.headInfo && stage.headInfo.headCount);
-  const panelWidth = hasAttnDetail ? 520 : 390;
-  const headLayout = hasHeadGrid ? getHeadStructureLayout(stage.headInfo, panelWidth) : null;
-  const headGridHeight = headLayout?.totalHeight || 0;
-  const basePanelHeight = hasAttnDetail ? 260 : 240;
-  const panelHeight = basePanelHeight + headGridHeight;
-  const panelX = clamp(stage.x + stage.width / 2 - panelWidth / 2, 36, contentWidth - panelWidth - 36);
+  const { hasAttnDetail, panelWidth, panelHeight } = getDetailPanelMetrics(stage);
+  const panelMinX = 36;
+  const panelMaxX = Math.max(panelMinX, contentWidth - panelWidth - 36);
+  const panelX = clamp(stage.x + stage.width / 2 - panelWidth / 2, panelMinX, panelMaxX);
   const panelY = 208;
   const mainY = panelY + 120;
   const group = svgElement('g');
@@ -1007,10 +1620,17 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
     }
   });
 
-  // Head grid below the flow diagram
-  if (hasHeadGrid) {
-    const gridTopY = panelY + basePanelHeight - 10;
-    drawHeadGrid(group, stage.headInfo, panelX, gridTopY, panelWidth, selectedHead, onSelectHead, headLayout);
+  if (hasAttnDetail && stage.headInfo?.headCount) {
+    const separatorY = mainY + 34;
+    group.appendChild(svgElement('line', {
+      x1: panelX + 20,
+      y1: separatorY,
+      x2: panelX + panelWidth - 20,
+      y2: separatorY,
+      stroke: '#364154',
+      'stroke-width': 1,
+    }));
+    drawSVGHeadWiring(group, stage, panelX, separatorY + 24, panelWidth, selectedHead, onSelectHead);
   }
 
   camera.appendChild(group);
@@ -1045,11 +1665,25 @@ export function renderResidualFlow(container, model, uiState = {}) {
   container.appendChild(wrapper);
   renderInspector(inspector, selectedStage, model, selectedHead, uiState);
 
-  // Estimate extra height for head grid when a block is selected
-  const headGridExtra = selectedStage?.headInfo?.headCount ? (getHeadStructureLayout(selectedStage.headInfo, 520)?.totalHeight || 0) : 0;
-  const svgHeight = selectedStage ? 560 + headGridExtra : 420;
+  const detailPanelHeight = selectedStage
+    ? getDetailPanelMetrics(selectedStage).panelHeight
+    : 560;
+  const svgHeight = selectedStage ? Math.max(560, detailPanelHeight) : 420;
   const svg = svgElement('svg', { class: 'architecture-svg', width: '100%', height: svgHeight });
   canvas.appendChild(svg);
+  const defs = svgElement('defs');
+  const arrowhead = svgElement('marker', {
+    id: 'architecture-arrowhead',
+    markerWidth: 8,
+    markerHeight: 8,
+    refX: 7,
+    refY: 4,
+    orient: 'auto',
+    markerUnits: 'strokeWidth',
+  });
+  arrowhead.appendChild(svgElement('path', { d: 'M 0 0 L 8 4 L 0 8 z', fill: '#7f9ac7' }));
+  defs.appendChild(arrowhead);
+  svg.appendChild(defs);
   const viewportWidth = canvas.clientWidth || container.clientWidth || 960;
   const viewportHeight = svgHeight;
   svg.setAttribute('viewBox', `0 0 ${viewportWidth} ${viewportHeight}`);
@@ -1065,7 +1699,7 @@ export function renderResidualFlow(container, model, uiState = {}) {
     cursor += stage.width + 48;
   }
   const contentWidth = cursor + 48;
-  const contentHeight = selectedStage ? 470 + headGridExtra : 210;
+  const contentHeight = selectedStage ? Math.max(470, detailPanelHeight - 90) : 210;
   const background = svgElement('rect', {
     x: 0, y: 0, width: contentWidth, height: Math.max(contentHeight + 80, viewportHeight), fill: 'transparent',
   });

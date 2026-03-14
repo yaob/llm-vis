@@ -60,16 +60,41 @@ function parseTensorName(name) {
   return { block: null, component: name, suffix: 'weight' };
 }
 
+/**
+ * Coerce a GGUF metadata value to a scalar number.
+ * Handles: plain numbers, single-element arrays, and uint8-byte arrays
+ * (some GGUF files store uint32 scalars as type-9 uint8 arrays of 4 bytes).
+ */
+function toNum(v) {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
+  if (Array.isArray(v) || ArrayBuffer.isView(v)) {
+    if (v.length === 1) return Number(v[0]) || 0;
+    if (v.length >= 4) {
+      // Try interpreting first 4 bytes as a little-endian uint32
+      const le = (v[0] | (v[1] << 8) | (v[2] << 16) | ((v[3] << 24) >>> 0)) >>> 0;
+      if (le > 0 && le < 1e6) return le;
+      // Try big-endian
+      const be = ((v[0] << 24) | (v[1] << 16) | (v[2] << 8) | v[3]) >>> 0;
+      if (be > 0 && be < 1e6) return be;
+    }
+    // Fallback: first non-zero element, or first element
+    for (let i = 0; i < v.length; i++) { if (v[i]) return Number(v[i]); }
+    return Number(v[0]) || 0;
+  }
+  return Number(v) || 0;
+}
+
 export function analyzeModel(gguf) {
   const { metadata, tensors } = gguf;
 
   const arch = metadata['general.architecture'] || 'unknown';
   const modelName = metadata['general.name'] || 'Unknown Model';
-  const blockCount = metadata[`${arch}.block_count`] || 0;
-  const embeddingLength = metadata[`${arch}.embedding_length`] || 0;
-  const headCount = metadata[`${arch}.attention.head_count`] || 0;
-  const headCountKV = metadata[`${arch}.attention.head_count_kv`] || headCount;
-  const contextLength = metadata[`${arch}.context_length`] || 0;
+  const blockCount = toNum(metadata[`${arch}.block_count`]);
+  const embeddingLength = toNum(metadata[`${arch}.embedding_length`]);
+  const headCount = toNum(metadata[`${arch}.attention.head_count`]);
+  const headCountKV = toNum(metadata[`${arch}.attention.head_count_kv`]) || headCount;
+  const contextLength = toNum(metadata[`${arch}.context_length`]);
   const vocabSize = metadata['tokenizer.ggml.tokens']?.length || 0;
   const headDim = headCount > 0 ? Math.round(embeddingLength / headCount) : 0;
   const gqaRatio = headCountKV > 0 ? Math.round(headCount / headCountKV) : 1;

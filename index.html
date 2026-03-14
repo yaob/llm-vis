@@ -98,6 +98,49 @@
         .head-heatmap-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
         .head-heatmap-caption { margin-top: 8px; color: #8f9bb0; font-size: 0.74rem; line-height: 1.4; }
 
+        /* Attention head connection diagram */
+        .head-connection-section { margin: 12px 0 10px; padding: 12px; border-radius: 10px; background: #202733; border: 1px solid #313b4d; }
+        .head-connection-section h5 { margin: 0 0 6px; color: #dfe7f3; font-size: 0.83rem; }
+        .head-connection-note { margin: 0 0 10px; color: #8f9bb0; font-size: 0.76rem; line-height: 1.45; }
+        .head-node { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 10px 12px; border-radius: 10px; background: #293241; border: 1px solid #3a4659; color: #eef3fb; text-align: center; min-width: 126px; }
+        .head-node strong { font-size: 0.79rem; color: #fff; }
+        .head-node span { font-size: 0.72rem; color: #aab7ca; }
+        .head-node small { font-size: 0.68rem; color: #7f8da3; }
+        .head-node.input { margin: 0 auto; background: #26303c; }
+        .head-node.projection { width: 100%; min-width: 0; }
+        .head-projection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 14px; }
+        .head-projection-lane { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 6px 6px 0; }
+        .head-flow-arrow { display: flex; flex-direction: column; align-items: center; gap: 2px; color: #9fc7ff; font-size: 0.76rem; }
+        .head-flow-arrow span { font-size: 0.95rem; line-height: 1; }
+        .head-flow-arrow strong { font-size: 0.7rem; font-weight: 600; color: #9fc7ff; padding: 2px 7px; border-radius: 999px; background: rgba(85, 134, 196, 0.18); border: 1px solid rgba(121, 170, 235, 0.22); }
+        .head-projection-caption { font-size: 0.72rem; color: #7f8da3; text-align: center; }
+        .head-band-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; }
+        .head-band { background: #1d2430; border: 1px solid #334051; border-radius: 12px; padding: 10px; }
+        .head-band.selected { border-color: #71b7ff; box-shadow: 0 0 0 1px rgba(113,183,255,0.25) inset; }
+        .head-band.related { border-color: #5e7fa6; }
+        .head-band-header, .head-band-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .head-band-header strong { color: #fff; font-size: 0.78rem; }
+        .head-band-header span, .head-band-meta span { color: #8f9bb0; font-size: 0.69rem; }
+        .head-band-meta { margin-top: 4px; }
+        .head-band-row, .head-band-kv { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 10px; }
+        .head-band-bus { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 8px; color: #8db6e7; }
+        .head-band-connector { width: 2px; height: 18px; background: linear-gradient(180deg, #7d8fa6 0%, #4a90d9 100%); border-radius: 999px; }
+        .head-band-link-label { font-size: 0.68rem; color: #8db6e7; }
+
+        /* HTML head grid */
+        .head-grid-section { margin-top: 10px; }
+        .head-grid-section h5 { font-size: 0.82rem; color: #c6cfdd; font-weight: 600; margin: 0 0 8px; }
+        .head-grid-label { font-size: 0.76rem; color: #9aa4b8; margin: 8px 0 4px; }
+        .head-grid { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+        .head-cell { width: 28px; height: 28px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 600; color: #fff; cursor: pointer; border: 1.5px solid transparent; transition: border-color 0.15s, background 0.15s, opacity 0.15s; opacity: 0.88; padding: 0; appearance: none; -webkit-appearance: none; }
+        .head-cell:hover { opacity: 1; border-color: #8db6e7; }
+        .head-cell:focus-visible { outline: 2px solid #71b7ff; outline-offset: 2px; }
+        .head-cell.q-head { background: #e6894a; }
+        .head-cell.kv-head { background: #4a90d9; }
+        .head-cell.selected { border-color: #71b7ff; border-width: 2px; opacity: 1; box-shadow: 0 0 6px rgba(113,183,255,0.35); }
+        .head-cell.related { border-color: #8db6e7; opacity: 0.96; }
+        .head-grid-hint { font-size: 0.72rem; color: #6f7b90; margin-top: 2px; }
+
         /* Layer stack */
         .layer-stack { display: flex; flex-direction: column; gap: 3px; }
         .layer { background: #22262e; border-radius: 6px; overflow: hidden; }
@@ -239,14 +282,15 @@
             viewTransforms: { architecture: null },
         };
 
-        function renderCurrentModel() {
+        function renderCurrentModel(preserveScroll = false) {
             if (!appState.model) return;
+            const scrollY = preserveScroll ? window.scrollY : null;
             renderModelView(viz, appState.model, {
                 activeView: appState.activeView,
                 selectedLayerIndex: appState.selectedLayerIndex,
                 selectedHead: appState.selectedHead,
                 transform: appState.viewTransforms.architecture,
-                onInvalidate: () => renderCurrentModel(),
+                onInvalidate: () => renderCurrentModel(true),
                 onViewChange: (viewId) => {
                     appState.activeView = viewId;
                     renderCurrentModel();
@@ -254,19 +298,22 @@
                 onSelectLayer: (layerIndex) => {
                     appState.selectedLayerIndex = appState.selectedLayerIndex === layerIndex ? null : layerIndex;
                     appState.selectedHead = null;
-                    renderCurrentModel();
+                    renderCurrentModel(true);
                 },
                 onSelectHead: (headSelection) => {
                     const sameSelection = appState.selectedHead
                         && appState.selectedHead.kind === headSelection?.kind
                         && appState.selectedHead.index === headSelection?.index;
                     appState.selectedHead = sameSelection ? null : headSelection;
-                    renderCurrentModel();
+                    renderCurrentModel(true);
                 },
                 onTransformChange: (transform) => {
                     appState.viewTransforms.architecture = transform;
                 },
             });
+            if (scrollY != null) {
+                window.scrollTo({ top: scrollY, behavior: 'instant' });
+            }
         }
 
         function showModel(model) {

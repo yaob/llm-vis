@@ -124,12 +124,15 @@ export function buildResidualFlowGraph(model) {
     }));
   }
 
+  // Ensure all head counts are proper scalar numbers (defense against array metadata)
+  const safeNum = (v) => typeof v === 'number' ? v : (Array.isArray(v) ? Number(v[0]) || 0 : Number(v) || 0);
   const headInfo = {
-    headCount: model.headCount || 0,
-    headCountKV: model.headCountKV || model.headCount || 0,
-    headDim: model.headDim || 0,
-    gqaRatio: model.gqaRatio || 1,
-    embeddingLength: model.embeddingLength || 0,
+    headCount: safeNum(model.headCount) || 0,
+    headCountKV: safeNum(model.headCountKV) || safeNum(model.headCount) || 0,
+    headDim: safeNum(model.headDim) || 0,
+    gqaRatio: safeNum(model.gqaRatio) || 1,
+    embeddingLength: safeNum(model.embeddingLength) || 0,
+    contextLength: safeNum(model.contextLength) || 0,
   };
 
   for (const block of blocks) {
