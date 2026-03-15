@@ -907,9 +907,10 @@ function getSVGHeadWiringLayout(headInfo, panelWidth) {
 
 function getDetailPanelMetrics(stage) {
   const hasAttnDetail = stage.detailRows.some((row) => row.layout === 'attention-qkv');
+  const diagramYOffset = 48;
   const panelWidth = hasAttnDetail ? 1020 : 390;
   const basePanelHeight = hasAttnDetail ? 260 : 240;
-  const headDiagramTopGap = 114;
+  const headDiagramTopGap = 168;
   const wiringLayout = hasAttnDetail && stage.headInfo?.headCount
     ? getSVGHeadWiringLayout(stage.headInfo, panelWidth)
     : null;
@@ -918,7 +919,7 @@ function getDetailPanelMetrics(stage) {
   return {
     hasAttnDetail,
     panelWidth,
-    panelHeight: basePanelHeight + headDiagramHeight,
+    panelHeight: basePanelHeight + diagramYOffset + headDiagramHeight,
   };
 }
 
@@ -1257,14 +1258,14 @@ function drawSVGHeadWiring(group, stage, panelX, chartTopY, panelWidth, selected
 }
 
 function drawAttentionPath(group, detail, panelX, mainY, panelWidth) {
-  const rowCenterY = mainY - 62;
+  const rowCenterY = mainY - 50;
   const nw = 56; // node width
   const nh = 24; // node height
-  const qkvSpacing = 28;
+  const qkvSpacing = 48;
   const color = COLORS.attention;
 
   // Horizontal positions
-  const normX = panelX + 104;
+  const normX = panelX + 116;
   const qkvX = normX + nw / 2 + 56;
   const softmaxX = qkvX + nw / 2 + 56;
   const outProjX = softmaxX + nw / 2 + 56;
@@ -1329,15 +1330,25 @@ function drawAttentionPath(group, detail, panelX, mainY, panelWidth) {
 }
 
 function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex) {
-  const mergeX = rowIndex === 0 ? panelX + panelWidth * 0.62 : panelX + panelWidth * 0.84;
+  const nodeWidth = 76;
+  const nodeHeight = 32;
+  const nodeHalfWidth = nodeWidth / 2;
+  const mergeGap = 24;
+  const isCompactPanel = panelWidth <= 420;
+  const mergeX = isCompactPanel
+    ? panelX + panelWidth - 74
+    : (rowIndex === 0 ? panelX + panelWidth * 0.62 : panelX + panelWidth * 0.84);
   const rowY = rowIndex === 0 ? mainY - 58 : mainY + 58;
-  const startX = panelX + 112;
-  const endX = mergeX - 42;
+  const startX = isCompactPanel ? panelX + 108 : panelX + 124;
+  const endX = mergeX - (nodeHalfWidth + mergeGap);
   const span = row.nodes.length > 1 ? (endX - startX) / (row.nodes.length - 1) : 0;
+  const firstNodeCenterX = startX;
+  const firstNodeLeftX = firstNodeCenterX - nodeHalfWidth;
+  const lastNodeCenterX = startX + span * Math.max(0, row.nodes.length - 1);
 
   group.appendChild(svgElement('text', { x: panelX + 20, y: rowY - 22, 'font-size': 10.5, fill: '#9aa4b8' }, row.label));
   group.appendChild(svgElement('path', {
-    d: `M ${panelX + 44} ${mainY} C ${panelX + 62} ${mainY} ${startX - 38} ${rowY} ${startX - 14} ${rowY}`,
+    d: `M ${panelX + 44} ${mainY} C ${panelX + 62} ${mainY} ${firstNodeLeftX - 20} ${rowY} ${firstNodeLeftX} ${rowY}`,
     fill: 'none', stroke: COLORS[row.nodes[row.nodes.length - 1].type] || COLORS.residual, 'stroke-width': 2.2,
   }));
 
@@ -1345,7 +1356,7 @@ function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex) {
     const nodeCenterX = startX + span * index;
     const nodeGroup = svgElement('g');
     const rect = svgElement('rect', {
-      x: nodeCenterX - 38, y: rowY - 16, width: 76, height: 32, rx: 12,
+      x: nodeCenterX - nodeHalfWidth, y: rowY - nodeHeight / 2, width: nodeWidth, height: nodeHeight, rx: 12,
       fill: '#202530', stroke: COLORS[node.type] || '#6f7a8e', 'stroke-width': 1.5,
     });
     const text = svgElement('text', {
@@ -1355,7 +1366,7 @@ function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex) {
     nodeGroup.appendChild(svgElement('title', {}, nodeTooltip(node)));
     if (index > 0) {
       nodeGroup.appendChild(svgElement('line', {
-        x1: nodeCenterX - span + 38, y1: rowY, x2: nodeCenterX - 38, y2: rowY,
+        x1: nodeCenterX - span + nodeHalfWidth, y1: rowY, x2: nodeCenterX - nodeHalfWidth, y2: rowY,
         stroke: COLORS[node.type] || COLORS.residual, 'stroke-width': 2,
       }));
     }
@@ -1363,7 +1374,7 @@ function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex) {
   });
 
   group.appendChild(svgElement('path', {
-    d: `M ${endX + 14} ${rowY} C ${endX + 32} ${rowY} ${mergeX - 12} ${mainY} ${mergeX} ${mainY}`,
+    d: `M ${lastNodeCenterX + nodeHalfWidth} ${rowY} C ${lastNodeCenterX + nodeHalfWidth + 18} ${rowY} ${mergeX - 12} ${mainY} ${mergeX} ${mainY}`,
     fill: 'none', stroke: COLORS[row.nodes[row.nodes.length - 1].type] || COLORS.residual, 'stroke-width': 2.2,
   }));
   group.appendChild(svgElement('circle', { cx: mergeX, cy: mainY, r: 11, fill: '#2d3441', stroke: '#5a6478', 'stroke-width': 1.5 }));
@@ -1610,11 +1621,12 @@ function drawHeadGrid(group, headInfo, panelX, gridTopY, panelWidth, selectedHea
 
 function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSelectHead = null) {
   const { hasAttnDetail, panelWidth, panelHeight } = getDetailPanelMetrics(stage);
+  const diagramYOffset = 48;
   const panelMinX = 36;
   const panelMaxX = Math.max(panelMinX, contentWidth - panelWidth - 36);
   const panelX = clamp(stage.x + stage.width / 2 - panelWidth / 2, panelMinX, panelMaxX);
   const panelY = 208;
-  const mainY = panelY + 120;
+  const mainY = panelY + 120 + diagramYOffset;
   const group = svgElement('g');
   const connector = svgElement('path', {
     d: `M ${stage.x + stage.width / 2} ${stage.y + stage.height} L ${stage.x + stage.width / 2} ${panelY - 18} L ${panelX + panelWidth / 2} ${panelY - 18}`,
@@ -1645,15 +1657,7 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
 
   if (hasAttnDetail && stage.headInfo?.headCount) {
     const separatorY = mainY + 52;
-    group.appendChild(svgElement('line', {
-      x1: panelX + 20,
-      y1: separatorY,
-      x2: panelX + panelWidth - 20,
-      y2: separatorY,
-      stroke: '#364154',
-      'stroke-width': 1,
-    }));
-    drawSVGHeadWiring(group, stage, panelX, separatorY + 24, panelWidth, selectedHead, onSelectHead);
+    drawSVGHeadWiring(group, stage, panelX, separatorY + 78, panelWidth, selectedHead, onSelectHead);
   }
 
   camera.appendChild(group);
