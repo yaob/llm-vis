@@ -157,7 +157,8 @@ function getTensorRowCount(tensor) {
 function createHeadCellButton(kind, index, label, selected, related, title, onSelect) {
   const cell = document.createElement('button');
   cell.type = 'button';
-  cell.className = `head-cell ${kind === 'q' ? 'q-head' : 'kv-head'}`;
+  const kindClass = kind === 'q' ? 'q-head' : kind === 'kv' ? 'kv-head' : 'wo-head';
+  cell.className = `head-cell ${kindClass}`;
   if (selected) cell.classList.add('selected');
   else if (related) cell.classList.add('related');
   if (label !== undefined && label !== null) cell.textContent = `${label}`;
@@ -562,9 +563,27 @@ function renderHTMLHeadGrid(container, headInfo, selectedHead, onSelectHead) {
   }
   section.appendChild(kvGrid);
 
+  const woLabel = document.createElement('div');
+  woLabel.className = 'head-grid-label';
+  woLabel.textContent = 'Output projection';
+  section.appendChild(woLabel);
+
+  const woGrid = document.createElement('div');
+  woGrid.className = 'head-grid';
+  woGrid.appendChild(createHeadCellButton(
+    'wo',
+    undefined,
+    'Wo',
+    selectedHead?.kind === 'wo',
+    false,
+    'Output projection Wo',
+    onSelectHead,
+  ));
+  section.appendChild(woGrid);
+
   const hint = document.createElement('div');
   hint.className = 'head-grid-hint';
-  hint.textContent = 'Click any head cell—or the Wo node in the SVG wiring—to inspect tensor slices, params, and weight heatmaps.';
+  hint.textContent = 'Use these selectors—or click nodes in the SVG wiring—to inspect tensor slices, params, and weight heatmaps.';
   section.appendChild(hint);
 
   container.appendChild(section);
@@ -612,18 +631,22 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
 
   // Build head info section
   let headHTML = '';
+  let headSelectorHTML = '';
   let selectedHeadDetail = null;
+  let selectedHeadHTML = '';
   const hi = stage.headInfo;
   if (hi && hi.headCount) {
     const typeLabel = getAttentionTypeLabel(hi, true);
     selectedHeadDetail = getSelectedHeadDetail(stage, selectedHead);
-    const selectedHeadHTML = selectedHeadDetail
+    headSelectorHTML = '<div data-head-grid></div>';
+    selectedHeadHTML = selectedHeadDetail
       ? `
         <div class="selected-head-card">
           <div class="selected-head-header">
             <span class="head-chip">${selectedHeadDetail.title}</span>
             <span class="head-chip secondary">${selectedHeadDetail.badge}</span>
           </div>
+          <div class="selected-head-decode" data-head-decode></div>
           <p class="selected-head-note">${selectedHeadDetail.note}</p>
           <div class="head-detail-grid">
             ${selectedHeadDetail.fields.map(field => `
@@ -633,7 +656,6 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
               </div>
             `).join('')}
           </div>
-          <div class="selected-head-decode" data-head-decode></div>
         </div>
       `
       : `
@@ -653,14 +675,14 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
           <div class="inspector-card"><span class="label">Head Dim</span><span class="value">${hi.headDim}</span></div>
           <div class="inspector-card"><span class="label">GQA Ratio</span><span class="value">${hi.gqaRatio}:1</span></div>
         </div>
-        <div data-head-grid></div>
-        ${selectedHeadHTML}
       </div>
     `;
   }
 
   container.innerHTML = `
     <h3>${stage.label}</h3>
+    ${headSelectorHTML}
+    ${selectedHeadHTML}
     <div class="inspector-grid">
       <div class="inspector-card"><span class="label">Pattern</span><span class="value">${stage.pattern}</span></div>
       <div class="inspector-card"><span class="label">Parameters</span><span class="value">${formatParams(stage.params)}</span></div>
@@ -887,10 +909,11 @@ function getDetailPanelMetrics(stage) {
   const hasAttnDetail = stage.detailRows.some((row) => row.layout === 'attention-qkv');
   const panelWidth = hasAttnDetail ? 1020 : 390;
   const basePanelHeight = hasAttnDetail ? 260 : 240;
+  const headDiagramTopGap = 114;
   const wiringLayout = hasAttnDetail && stage.headInfo?.headCount
     ? getSVGHeadWiringLayout(stage.headInfo, panelWidth)
     : null;
-  const headDiagramHeight = wiringLayout ? 96 + wiringLayout.totalHeight : 0;
+  const headDiagramHeight = wiringLayout ? headDiagramTopGap + wiringLayout.totalHeight : 0;
 
   return {
     hasAttnDetail,
@@ -1621,7 +1644,7 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
   });
 
   if (hasAttnDetail && stage.headInfo?.headCount) {
-    const separatorY = mainY + 34;
+    const separatorY = mainY + 52;
     group.appendChild(svgElement('line', {
       x1: panelX + 20,
       y1: separatorY,
@@ -1748,8 +1771,9 @@ export function renderResidualFlow(container, model, uiState = {}) {
     applyTransform();
   }
 
-  function panBy(dx) {
+  function panBy(dx, dy = 0) {
     transform.x += dx;
+    transform.y += dy;
     applyTransform();
   }
 
@@ -1758,6 +1782,8 @@ export function renderResidualFlow(container, model, uiState = {}) {
     createButton('Reset', resetTransform),
     createButton('Zoom +', () => zoomBy(1.15)),
     createButton('Zoom −', () => zoomBy(1 / 1.15)),
+    createButton('Pan ↑', () => panBy(0, 180)),
+    createButton('Pan ↓', () => panBy(0, -180)),
     createButton('← Pan', () => panBy(180)),
     createButton('Pan →', () => panBy(-180)),
   );
