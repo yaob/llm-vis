@@ -137,6 +137,8 @@
         .head-cell:focus-visible { outline: 2px solid #71b7ff; outline-offset: 2px; }
         .head-cell.q-head { background: #e6894a; }
         .head-cell.kv-head { background: #4a90d9; }
+        .head-cell.mlp-head { background: #5ea65f; min-width: 42px; width: auto; padding: 0 10px; }
+        .head-cell.moe-head { background: #b89d2b; min-width: 56px; width: auto; padding: 0 10px; }
         .head-cell.wo-head { background: #5b7bb8; min-width: 42px; width: auto; padding: 0 10px; }
         .head-cell.selected { border-color: #71b7ff; border-width: 2px; opacity: 1; box-shadow: 0 0 6px rgba(113,183,255,0.35); }
         .head-cell.related { border-color: #8db6e7; opacity: 0.96; }
@@ -228,8 +230,8 @@
             </div>
             <div class="source-tab-panel" id="tabGguf">
                 <div class="upload-area" id="dropArea">
-                    <p>Drag & drop a <strong>.gguf</strong> file here, or click to browse</p>
-                    <input type="file" id="fileInput" style="display:none" accept=".gguf">
+                    <p>Drag & drop a <strong>.gguf</strong> file (or symlink) here, or click to browse</p>
+                    <input type="file" id="fileInput" style="display:none">
                     <button id="browseBtn">Select GGUF File</button>
                 </div>
             </div>
@@ -415,11 +417,6 @@
 
         async function processFile(file) {
             if (!file) return;
-            if (!file.name.endsWith('.gguf')) {
-                status.textContent = 'Please select a .gguf file';
-                status.className = 'error';
-                return;
-            }
 
             // Deselect any Ollama card
             ollamaModelsEl.querySelectorAll('.ollama-model-card').forEach(c => c.classList.remove('selected'));
@@ -442,9 +439,13 @@
                 status.textContent = '';
                 showModel(model);
             } catch (err) {
-                status.textContent = `Error: ${err.message}`;
+                status.textContent = err.message === 'Not a valid GGUF file'
+                    ? 'Error: Selected file is not a valid GGUF file.'
+                    : `Error: ${err.message}`;
                 status.className = 'error';
                 console.error(err);
+            } finally {
+                fileInput.value = '';
             }
         }
     </script>

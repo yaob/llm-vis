@@ -47,6 +47,16 @@ const CATEGORY_MAP = {
   'ssm_d': 'ssm', 'ssm_dt': 'ssm', 'ssm_out': 'ssm',
 };
 
+const COMPONENT_ALIASES = {
+  'ffn_up_exps': 'ffn_up_exp',
+  'ffn_gate_exps': 'ffn_gate_exp',
+  'ffn_down_exps': 'ffn_down_exp',
+};
+
+function normalizeComponent(component) {
+  return COMPONENT_ALIASES[component] || component;
+}
+
 function parseTensorName(name) {
   // blk.N.component.weight/bias  OR  base_component.weight/bias
   const blockMatch = name.match(/^blk\.(\d+)\.(.+?)(?:\.(weight|bias))?$/);
@@ -105,12 +115,15 @@ export function analyzeModel(gguf) {
 
   for (const t of tensors) {
     const parsed = parseTensorName(t.name);
+    const component = normalizeComponent(parsed.component);
     const memoryBytes = computeTensorBytes(t.type, t.numElements);
     const entry = {
       ...t, ...parsed,
+      rawComponent: parsed.component,
+      component,
       memoryBytes,
-      label: COMPONENT_LABELS[parsed.component] || parsed.component,
-      category: CATEGORY_MAP[parsed.component] || 'other',
+      label: COMPONENT_LABELS[component] || component,
+      category: CATEGORY_MAP[component] || 'other',
     };
     if (parsed.block !== null) {
       if (!blocks.has(parsed.block)) blocks.set(parsed.block, []);

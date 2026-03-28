@@ -6,6 +6,50 @@ function sumMemory(tensors) {
   return tensors.reduce((sum, tensor) => sum + (tensor.memoryBytes || 0), 0);
 }
 
+function makeTensorDetail(tensor) {
+  return tensor ? {
+    name: tensor.name || '',
+    component: tensor.component || '',
+    type: tensor.type,
+    offset: tensor.offset,
+    absoluteOffset: tensor.absoluteOffset,
+    byteLength: tensor.byteLength || 0,
+    numElements: tensor.numElements || 0,
+    params: tensor.numElements,
+    memoryBytes: tensor.memoryBytes || 0,
+    shape: tensor.dimensions || [],
+    dimensions: tensor.dimensions || [],
+    typeName: tensor.typeName || '',
+    label: tensor.label || '',
+  } : null;
+}
+
+function makeTensorGroupDetail(label, component, tensors) {
+  const details = tensors.filter(Boolean);
+  if (!details.length) return null;
+  const typeNames = [...new Set(details.map((tensor) => tensor.typeName).filter(Boolean))];
+  const expertCounts = details
+    .map((tensor) => Number(tensor.shape?.[2] ?? tensor.dimensions?.[2]))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return {
+    name: details.map((tensor) => tensor.name).filter(Boolean).join(' • '),
+    component,
+    type: details.length === 1 ? details[0].type : null,
+    offset: null,
+    absoluteOffset: null,
+    byteLength: details.reduce((sum, tensor) => sum + (tensor.byteLength || 0), 0),
+    numElements: details.reduce((sum, tensor) => sum + (tensor.numElements || 0), 0),
+    params: details.reduce((sum, tensor) => sum + (tensor.params || tensor.numElements || 0), 0),
+    memoryBytes: details.reduce((sum, tensor) => sum + (tensor.memoryBytes || 0), 0),
+    shape: [],
+    dimensions: [],
+    typeName: typeNames.length <= 1 ? (typeNames[0] || '') : typeNames.join(' • '),
+    label,
+    tensors: details,
+    expertCount: expertCounts.length ? expertCounts[0] : null,
+  };
+}
+
 function getBlockProfile(layer) {
   const categories = new Set(layer.tensors.map(tensor => tensor.category));
   const hasAttention = categories.has('attention');
@@ -13,43 +57,103 @@ function getBlockProfile(layer) {
   const hasMoE = categories.has('moe');
   const hasSSM = categories.has('ssm');
   const hasNorm = categories.has('norm');
+  const findLayerComp = (...components) => layer.tensors.find(t => components.includes(t.component));
 
   // Extract attention component details
   let attentionDetail = null;
   if (hasAttention) {
     const attnTensors = layer.tensors.filter(t => t.category === 'attention');
     const getComp = (comp) => attnTensors.find(t => t.component === comp);
-    const makeDetail = (t) => t ? {
-      name: t.name || '',
-      component: t.component || '',
-      type: t.type,
-      offset: t.offset,
-      absoluteOffset: t.absoluteOffset,
-      byteLength: t.byteLength || 0,
-      numElements: t.numElements || 0,
-      params: t.numElements, memoryBytes: t.memoryBytes || 0,
-      shape: t.dimensions || [], dimensions: t.dimensions || [], typeName: t.typeName || '', label: t.label || '',
-    } : null;
     attentionDetail = {
+      norm: makeTensorDetail(findLayerComp('attn_norm', 'attn_norm_2')),
       fused: !!getComp('attn_qkv'),
-      q: makeDetail(getComp('attn_q')),
-      k: makeDetail(getComp('attn_k')),
-      v: makeDetail(getComp('attn_v')),
-      qkv: makeDetail(getComp('attn_qkv')),
-      output: makeDetail(getComp('attn_output')),
+      q: makeTensorDetail(getComp('attn_q')),
+      k: makeTensorDetail(getComp('attn_k')),
+      v: makeTensorDetail(getComp('attn_v')),
+      qkv: makeTensorDetail(getComp('attn_qkv')),
+      output: makeTensorDetail(getComp('attn_output')),
     };
   }
 
+  let mlpDetail = null;
+  if (hasMLP) {
+    const mlpTensors = layer.tensors.filter(t => t.category === 'mlp');
+    const getComp = (comp) => mlpTensors.find(t => t.component === comp);
+    const up = makeTensorDetail(getComp('ffn_up'));
+    const gate = makeTensorDetail(getComp('ffn_gate'));
+    const down = makeTensorDetail(getComp('ffn_down'));
+    mlpDetail = {
+      norm: makeTensorDetail(findLayerComp('ffn_norm')),
+      up,
+      gate,
+      down,
+      gated: !!gate,
+    };
+  }
+
+  let moeDetail = null;
+  if (hasMoE) {
+    const moeTensors = layer.tensors.filter(t => t.category === 'moe');
+    const getComp = (...components) => moeTensors.find(t => components.includes(t.component) || components.includes(t.rawComponent));
+    const router = makeTensorDetail(getComp('ffn_gate_inp'));
+    const expertUp = makeTensorDetail(getComp('ffn_up_exp', 'ffn_up_exps'));
+    const expertGate = makeTensorDetail(getComp('ffn_gate_exp', 'ffn_gate_exps'));
+    const expertDown = makeTensorDetail(getComp('ffn_down_exp', 'ffn_down_exps'));
+    moeDetail = {
+      norm: makeTensorDetail(findLayerComp('ffn_norm')),
+      router,
+      expertUp,
+      expertGate,
+      expertDown,
+      experts: makeTensorGroupDetail('MoE Experts', 'moe_experts', [expertUp, expertGate, expertDown]),
+      gated: !!expertGate,
+    };
+  }
+
+  let ssmDetail = null;
+  if (hasSSM) {
+    const ssmTensors = layer.tensors.filter(t => t.category === 'ssm');
+    const getComp = (comp) => ssmTensors.find(t => t.component === comp);
+    const normTensor = findLayerComp('attn_norm', 'attn_norm_2', 'ffn_norm');
+    const normLabel = normTensor?.component === 'attn_norm_2'
+      ? 'Attn Norm 2'
+      : normTensor?.component === 'ffn_norm'
+        ? 'FFN Norm'
+        : normTensor
+          ? 'Attn Norm'
+          : (hasNorm ? 'Norm' : 'Norm');
+    ssmDetail = {
+      normLabel,
+      norm: makeTensorDetail(normTensor),
+      input: makeTensorDetail(getComp('ssm_in')),
+      conv1d: makeTensorDetail(getComp('ssm_conv1d')),
+      selective: makeTensorDetail(getComp('ssm_x')),
+      a: makeTensorDetail(getComp('ssm_a')),
+      d: makeTensorDetail(getComp('ssm_d')),
+      dt: makeTensorDetail(getComp('ssm_dt')),
+      output: makeTensorDetail(getComp('ssm_out')),
+    };
+  }
+
+  const hasAttentionSSMMLP = hasAttention && hasSSM && hasMLP;
   const detailRows = [];
-  if (hasAttention || hasSSM) {
+  if (hasAttentionSSMMLP) {
+    detailRows.push({
+      label: 'Attention path',
+      layout: 'attention-qkv',
+      attentionDetail,
+    });
+    detailRows.push({
+      label: 'State path',
+      layout: 'ssm',
+      ssmDetail,
+    });
+  } else if (hasAttention || hasSSM) {
     if (hasSSM) {
       detailRows.push({
         label: 'State path',
-        layout: 'linear',
-        nodes: [
-          { label: hasNorm ? 'Attn Norm' : 'Norm', type: 'norm' },
-          { label: 'SSM', type: 'ssm' },
-        ],
+        layout: 'ssm',
+        ssmDetail,
       });
     } else {
       detailRows.push({
@@ -64,24 +168,24 @@ function getBlockProfile(layer) {
       label: 'Expert path',
       layout: 'linear',
       nodes: [
-        { label: 'FFN Norm', type: 'norm' },
-        { label: 'Router', type: 'moe' },
-        { label: 'Experts', type: 'moe' },
-      ],
+        { label: 'FFN Norm', type: 'norm', detail: moeDetail?.norm || null },
+        { label: 'Router', type: 'moe', kind: 'moe-router', detail: moeDetail?.router || null },
+        { label: 'Up', type: 'moe', kind: 'moe-up', detail: moeDetail?.expertUp || null },
+        { label: 'Gate', type: 'moe', kind: 'moe-gate', detail: moeDetail?.expertGate || null },
+        { label: 'Down', type: 'moe', kind: 'moe-down', detail: moeDetail?.expertDown || null },
+      ].filter((node) => node.type === 'norm' || !!node.detail),
     });
   } else if (hasMLP) {
     detailRows.push({
       label: 'MLP path',
-      layout: 'linear',
-      nodes: [
-        { label: 'FFN Norm', type: 'norm' },
-        { label: 'MLP', type: 'mlp' },
-      ],
+      layout: 'mlp',
+      mlpDetail,
     });
   }
 
   let pattern = 'Residual block';
-  if (hasAttention && hasMoE) pattern = 'Attention • MoE';
+  if (hasAttentionSSMMLP) pattern = 'Attention • SSM • MLP';
+  else if (hasAttention && hasMoE) pattern = 'Attention • MoE';
   else if (hasAttention && hasMLP) pattern = 'Attention • MLP';
   else if (hasSSM) pattern = 'SSM block';
   else if (hasMoE) pattern = 'MoE block';
@@ -93,7 +197,7 @@ function getBlockProfile(layer) {
     hasSSM && 'SSM',
   ].filter(Boolean);
 
-  return { hasAttention, hasMLP, hasMoE, hasSSM, pattern, badges, detailRows, attentionDetail };
+  return { hasAttention, hasMLP, hasMoE, hasSSM, pattern, badges, detailRows, attentionDetail, mlpDetail, moeDetail, ssmDetail };
 }
 
 function makeStage(stage) {

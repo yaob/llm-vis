@@ -16,6 +16,8 @@ const COLORS = {
   selected: '#71b7ff',
 };
 
+const MOE_SUBDIAGRAM_ROW_OFFSET = -48;
+
 const headDecodeCache = new WeakMap();
 
 function clamp(value, min, max) {
@@ -154,10 +156,221 @@ function getTensorRowCount(tensor) {
   return Number.isFinite(totalRows) && totalRows > 0 ? totalRows : 0;
 }
 
+const MLP_SELECTIONS = {
+  'mlp-up': {
+    key: 'up',
+    title: 'FFN Up',
+    shortLabel: 'Up',
+    tensorLabel: 'ffn_up',
+    badge: 'Expansion projection',
+    note: 'Projects the model-state features into the intermediate FFN width before gating and contraction.',
+  },
+  'mlp-gate': {
+    key: 'gate',
+    title: 'FFN Gate',
+    shortLabel: 'Gate',
+    tensorLabel: 'ffn_gate',
+    badge: 'Gate projection',
+    note: 'Produces gate values that modulate the Up branch before the FFN contracts back down.',
+  },
+  'mlp-down': {
+    key: 'down',
+    title: 'FFN Down',
+    shortLabel: 'Down',
+    tensorLabel: 'ffn_down',
+    badge: 'Output projection',
+    note: 'Projects the intermediate FFN activations back to model width for the residual merge.',
+  },
+};
+
+function getMLPSelectionConfig(kind) {
+  return kind ? MLP_SELECTIONS[kind] || null : null;
+}
+
+const MOE_SELECTIONS = {
+  'moe-router': {
+    key: 'router',
+    title: 'MoE Router',
+    shortLabel: 'Router',
+    tensorLabel: 'ffn_gate_inp',
+    badge: 'Routing projection',
+    note: 'Projects token features into routing logits used to score and choose the active experts.',
+  },
+  'moe-up': {
+    key: 'expertUp',
+    title: 'MoE Expert Up',
+    shortLabel: 'Up',
+    tensorLabel: 'ffn_up_exp',
+    badge: 'Expert expansion',
+    note: 'Packed per-expert expansion weights that lift routed token activations into each expert hidden space.',
+  },
+  'moe-gate': {
+    key: 'expertGate',
+    title: 'MoE Expert Gate',
+    shortLabel: 'Gate',
+    tensorLabel: 'ffn_gate_exp',
+    badge: 'Expert gating',
+    note: 'Packed per-expert gating weights used by gated MoE feed-forward variants before expert contraction.',
+  },
+  'moe-down': {
+    key: 'expertDown',
+    title: 'MoE Expert Down',
+    shortLabel: 'Down',
+    tensorLabel: 'ffn_down_exp',
+    badge: 'Expert projection',
+    note: 'Packed per-expert projection weights that map expert activations back to the model width.',
+  },
+  'moe-experts': {
+    key: 'experts',
+    title: 'MoE Experts',
+    shortLabel: 'Experts',
+    badge: 'Packed expert bank',
+    note: 'Packed MoE expert tensors holding the per-expert Up / Gate / Down projections that run after routing.',
+  },
+};
+
+function getMoESelectionConfig(kind) {
+  return kind ? MOE_SELECTIONS[kind] || null : null;
+}
+
+const SSM_SELECTIONS = {
+  'ssm-norm': {
+    key: 'norm',
+    title: 'SSM Norm',
+    tensorLabel: 'norm',
+    badge: 'Normalization',
+    note: 'Normalization weights applied before the state-space mixing path.',
+  },
+  'ssm-in': {
+    key: 'input',
+    title: 'SSM In',
+    tensorLabel: 'ssm_in',
+    badge: 'Input projection',
+    note: 'Projects model-state features into the SSM path before local mixing and selective scan.',
+  },
+  'ssm-conv': {
+    key: 'conv1d',
+    title: 'SSM Conv1D',
+    tensorLabel: 'ssm_conv1d',
+    badge: 'Local mixing',
+    note: 'Applies the short convolution used by the SSM block before selective state updates.',
+  },
+  'ssm-selective': {
+    key: 'selective',
+    title: 'SSM Selective',
+    tensorLabel: 'ssm_x',
+    badge: 'Selective scan',
+    note: 'Primary selective state-space tensor used to drive the recurrent scan/update path.',
+  },
+  'ssm-a': {
+    key: 'a',
+    title: 'SSM A',
+    tensorLabel: 'ssm_a',
+    badge: 'State matrix',
+    note: 'Learned state transition parameter controlling how the SSM state evolves over sequence positions.',
+  },
+  'ssm-dt': {
+    key: 'dt',
+    title: 'SSM Δt',
+    tensorLabel: 'ssm_dt',
+    badge: 'Step size',
+    note: 'Time-step / delta parameter that modulates the selective scan dynamics.',
+  },
+  'ssm-d': {
+    key: 'd',
+    title: 'SSM D',
+    tensorLabel: 'ssm_d',
+    badge: 'Skip parameter',
+    note: 'Direct or skip parameter that blends immediate signal flow into the SSM output path.',
+  },
+  'ssm-out': {
+    key: 'output',
+    title: 'SSM Out',
+    tensorLabel: 'ssm_out',
+    badge: 'Output projection',
+    note: 'Projects the SSM path back into model width for the residual merge.',
+  },
+};
+
+function getSSMSelectionConfig(kind) {
+  return kind ? SSM_SELECTIONS[kind] || null : null;
+}
+
+function getSSMSelectionTitle(stage, selection, tensor) {
+  if (selection?.key === 'norm') return stage?.ssmDetail?.normLabel || tensor?.label || selection.title;
+  return selection?.title || tensor?.label || 'SSM Component';
+}
+
+function getSSMSelectionTensorLabel(stage, selection, tensor) {
+  if (selection?.key === 'norm') return tensor?.component || stage?.ssmDetail?.normLabel || selection.tensorLabel;
+  return selection?.tensorLabel || tensor?.component || tensor?.label || selection?.key || 'tensor';
+}
+
+function getMoEExpertEntries(moeDetail) {
+  return [
+    ['Expert Up', 'ffn_up_exp', moeDetail?.expertUp],
+    ['Expert Gate', 'ffn_gate_exp', moeDetail?.expertGate],
+    ['Expert Down', 'ffn_down_exp', moeDetail?.expertDown],
+  ].filter(([, , tensor]) => tensor);
+}
+
+function getMoEExpertCount(moeDetail) {
+  const counts = getMoEExpertEntries(moeDetail)
+    .map(([, , tensor]) => Number(tensor?.shape?.[2] ?? tensor?.dimensions?.[2]))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return counts.length ? counts[0] : null;
+}
+
+function getMoEPathMetrics(moeDetail) {
+  const expertCount = Math.max(1, getMoEExpertCount(moeDetail) || 1);
+  const denseLayout = expertCount > 12;
+  return {
+    expertCount,
+    laneGap: denseLayout ? 24 : 26,
+    leadNodeWidth: 72,
+    leadNodeHeight: 28,
+    laneNodeWidth: denseLayout ? 44 : 48,
+    laneNodeHeight: 20,
+    laneTextSize: denseLayout ? 8.6 : 9.2,
+    bankPadTop: 26,
+    bankPadBottom: 18,
+    firstLaneOffset: 42,
+  };
+}
+
+function getMoEVerticalFootprint(moeDetail, rowYOffset = -48, centerLanesOnRow = false) {
+  const metrics = getMoEPathMetrics(moeDetail);
+  const laneSpread = (metrics.expertCount - 1) * metrics.laneGap;
+  const laneClusterCenterOffset = centerLanesOnRow
+    ? rowYOffset
+    : rowYOffset + metrics.firstLaneOffset + laneSpread / 2;
+  const lastLaneOffset = centerLanesOnRow
+    ? laneClusterCenterOffset + laneSpread / 2
+    : metrics.firstLaneOffset + laneSpread;
+  return {
+    ...metrics,
+    lastLaneOffset,
+    bankBottomOffset: laneClusterCenterOffset + laneSpread / 2 + metrics.laneNodeHeight / 2 + metrics.bankPadBottom,
+  };
+}
+
+function isMoERow(row) {
+  return row?.layout === 'linear' && row.nodes?.some((node) => node.type === 'moe');
+}
+
+function getSelectionKindClass(kind) {
+  if (kind === 'q') return 'q-head';
+  if (kind === 'kv') return 'kv-head';
+  if (kind === 'wo') return 'wo-head';
+  if (kind?.startsWith('mlp-')) return 'mlp-head';
+  if (kind?.startsWith('moe-')) return 'moe-head';
+  return 'wo-head';
+}
+
 function createHeadCellButton(kind, index, label, selected, related, title, onSelect) {
   const cell = document.createElement('button');
   cell.type = 'button';
-  const kindClass = kind === 'q' ? 'q-head' : kind === 'kv' ? 'kv-head' : 'wo-head';
+  const kindClass = getSelectionKindClass(kind);
   cell.className = `head-cell ${kindClass}`;
   if (selected) cell.classList.add('selected');
   else if (related) cell.classList.add('related');
@@ -172,7 +385,141 @@ function createHeadCellButton(kind, index, label, selected, related, title, onSe
 }
 
 function getSelectedHeadDetail(stage, selectedHead) {
-  if (!stage?.headInfo?.headCount || !selectedHead) return null;
+  if (!selectedHead) return null;
+  const mlpSelection = getMLPSelectionConfig(selectedHead.kind);
+  if (mlpSelection) {
+    const tensor = stage?.mlpDetail?.[mlpSelection.key];
+    if (!tensor) return null;
+    const totalRows = getTensorRowCount(tensor);
+    const previewRows = Math.min(totalRows || 0, 96);
+    const previewEnd = Math.max(0, previewRows - 1);
+    return {
+      title: mlpSelection.title,
+      badge: mlpSelection.badge,
+      note: previewRows && totalRows > previewRows
+        ? `Showing rows 0–${previewEnd} of ${mlpSelection.tensorLabel} as a bounded preview so large FFN matrices stay responsive.`
+        : mlpSelection.note,
+      fields: [
+        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in ${mlpSelection.tensorLabel}` : mlpSelection.tensorLabel },
+        { label: 'Tensor shape', value: formatDimsLabel(tensor.shape) },
+        { label: 'Parameters', value: formatMaybeParams(tensor.params) },
+        { label: 'Memory', value: formatMaybeBytes(tensor.memoryBytes) },
+        { label: 'Quantization', value: tensor.typeName || '—' },
+        { label: 'FFN style', value: stage?.mlpDetail?.gated ? 'Gated FFN' : 'Plain FFN' },
+      ],
+      decodePlan: previewRows
+        ? {
+          cacheKey: `${stage.index}:${selectedHead.kind}`,
+          slices: [{ label: mlpSelection.title, tensorLabel: mlpSelection.tensorLabel, tensor, rowStart: 0, rowCount: previewRows }],
+        }
+        : null,
+    };
+  }
+
+  const moeSelection = getMoESelectionConfig(selectedHead.kind);
+  if (moeSelection) {
+    if (moeSelection.key === 'experts') {
+      const expertEntries = getMoEExpertEntries(stage?.moeDetail);
+      if (!expertEntries.length) return null;
+      const previewLimit = 48;
+      const slices = expertEntries
+        .map(([label, tensorLabel, tensor]) => {
+          const rowCount = Math.min(getTensorRowCount(tensor) || 0, previewLimit);
+          return rowCount ? { label, tensorLabel, tensor, rowStart: 0, rowCount } : null;
+        })
+        .filter(Boolean);
+      const expertPack = expertEntries.map(([, tensorLabel]) => tensorLabel).join(' • ');
+      const expertShapes = expertEntries.map(([label, , tensor]) => `${label} ${formatDimsLabel(tensor?.shape)}`).join(' • ');
+      const expertCount = getMoEExpertCount(stage?.moeDetail);
+      return {
+        title: moeSelection.title,
+        badge: moeSelection.badge,
+        note: slices.length
+          ? `Showing up to the first ${previewLimit} rows from each packed expert tensor so large MoE banks stay responsive.`
+          : moeSelection.note,
+        fields: [
+          { label: 'Tensor pack', value: expertPack || '—' },
+          { label: 'Tensor shapes', value: expertShapes || '—' },
+          { label: 'Parameters', value: formatMaybeParams(stage?.moeDetail?.experts?.params) },
+          { label: 'Memory', value: formatMaybeBytes(stage?.moeDetail?.experts?.memoryBytes) },
+          { label: 'Quantization', value: stage?.moeDetail?.experts?.typeName || '—' },
+          { label: 'Expert layout', value: `${stage?.moeDetail?.gated ? 'Up / Gate / Down' : 'Up / Down'}${expertCount ? ` • ${expertCount} packed experts` : ''}` },
+        ],
+        decodePlan: slices.length
+          ? {
+            cacheKey: `${stage.index}:${selectedHead.kind}`,
+            slices,
+          }
+          : null,
+      };
+    }
+
+    const tensor = stage?.moeDetail?.[moeSelection.key];
+    if (!tensor) return null;
+    const totalRows = getTensorRowCount(tensor);
+    const previewRows = Math.min(totalRows || 0, moeSelection.key === 'router' ? 96 : 48);
+    const previewEnd = Math.max(0, previewRows - 1);
+    const expertCount = getMoEExpertCount(stage?.moeDetail);
+    const roleLabel = moeSelection.key === 'router' ? 'Routing role' : 'Expert role';
+    const roleValue = moeSelection.key === 'router'
+      ? 'Scores experts for top-k dispatch'
+      : `${moeSelection.badge}${expertCount ? ` • ${expertCount} packed experts` : ''}`;
+    return {
+      title: moeSelection.title,
+      badge: moeSelection.badge,
+      note: previewRows && totalRows > previewRows
+        ? `Showing rows 0–${previewEnd} of ${moeSelection.tensorLabel} as a bounded preview so large ${moeSelection.key === 'router' ? 'routing' : 'expert'} matrices stay responsive.`
+        : moeSelection.note,
+      fields: [
+        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in ${moeSelection.tensorLabel}` : moeSelection.tensorLabel },
+        { label: 'Tensor shape', value: formatDimsLabel(tensor.shape) },
+        { label: 'Parameters', value: formatMaybeParams(tensor.params) },
+        { label: 'Memory', value: formatMaybeBytes(tensor.memoryBytes) },
+        { label: 'Quantization', value: tensor.typeName || '—' },
+        { label: roleLabel, value: roleValue },
+      ],
+      decodePlan: previewRows
+        ? {
+          cacheKey: `${stage.index}:${selectedHead.kind}`,
+          slices: [{ label: moeSelection.title, tensorLabel: moeSelection.tensorLabel, tensor, rowStart: 0, rowCount: previewRows }],
+        }
+        : null,
+    };
+  }
+
+  const ssmSelection = getSSMSelectionConfig(selectedHead.kind);
+  if (ssmSelection) {
+    const tensor = stage?.ssmDetail?.[ssmSelection.key];
+    if (!tensor) return null;
+    const totalRows = getTensorRowCount(tensor);
+    const previewRows = Math.min(totalRows || 0, 96);
+    const previewEnd = Math.max(0, previewRows - 1);
+    const title = getSSMSelectionTitle(stage, ssmSelection, tensor);
+    const tensorLabel = getSSMSelectionTensorLabel(stage, ssmSelection, tensor);
+    return {
+      title,
+      badge: ssmSelection.badge,
+      note: previewRows && totalRows > previewRows
+        ? `Showing rows 0–${previewEnd} of ${tensorLabel} as a bounded preview so large SSM tensors stay responsive.`
+        : ssmSelection.note,
+      fields: [
+        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in ${tensorLabel}` : tensorLabel },
+        { label: 'Tensor shape', value: formatDimsLabel(tensor.shape) },
+        { label: 'Parameters', value: formatMaybeParams(tensor.params) },
+        { label: 'Memory', value: formatMaybeBytes(tensor.memoryBytes) },
+        { label: 'Quantization', value: tensor.typeName || '—' },
+        { label: 'SSM role', value: ssmSelection.badge },
+      ],
+      decodePlan: previewRows
+        ? {
+          cacheKey: `${stage.index}:${selectedHead.kind}`,
+          slices: [{ label: title, tensorLabel, tensor, rowStart: 0, rowCount: previewRows }],
+        }
+        : null,
+    };
+  }
+
+  if (!stage?.headInfo?.headCount) return null;
   const hi = stage.headInfo;
   const ad = stage.attentionDetail;
   const groups = getHeadGroups(hi);
@@ -589,6 +936,99 @@ function renderHTMLHeadGrid(container, headInfo, selectedHead, onSelectHead) {
   container.appendChild(section);
 }
 
+function renderHTMLMLPGrid(container, mlpDetail, selectedHead, onSelectHead) {
+  const buttons = [
+    ['mlp-up', mlpDetail?.up],
+    ['mlp-gate', mlpDetail?.gate],
+    ['mlp-down', mlpDetail?.down],
+  ].filter(([, tensor]) => tensor);
+  if (!buttons.length) return;
+
+  const section = document.createElement('div');
+  section.className = 'head-grid-section';
+
+  const title = document.createElement('h5');
+  title.textContent = `MLP Components${mlpDetail?.gated ? ' · gated FFN' : ''}`;
+  section.appendChild(title);
+
+  const label = document.createElement('div');
+  label.className = 'head-grid-label';
+  label.textContent = 'Inspectable weight matrices';
+  section.appendChild(label);
+
+  const grid = document.createElement('div');
+  grid.className = 'head-grid';
+  buttons.forEach(([kind, tensor]) => {
+    const config = getMLPSelectionConfig(kind);
+    grid.appendChild(createHeadCellButton(
+      kind,
+      undefined,
+      config?.shortLabel || tensor?.label || kind,
+      selectedHead?.kind === kind,
+      false,
+      `${config?.title || tensor?.label || kind} ${formatDimsLabel(tensor?.shape)}`,
+      onSelectHead,
+    ));
+  });
+  section.appendChild(grid);
+
+  const hint = document.createElement('div');
+  hint.className = 'head-grid-hint';
+  hint.textContent = 'Use these selectors—or click the Up / Gate / Down boxes in the SVG wiring—to inspect tensor metadata and weight heatmaps.';
+  section.appendChild(hint);
+
+  container.appendChild(section);
+}
+
+function renderHTMLMoEGrid(container, moeDetail, selectedHead, onSelectHead) {
+  const buttons = [
+    ['moe-router', moeDetail?.router],
+    ['moe-up', moeDetail?.expertUp],
+    ['moe-gate', moeDetail?.expertGate],
+    ['moe-down', moeDetail?.expertDown],
+  ].filter(([, tensor]) => tensor);
+  if (!buttons.length) return;
+
+  const section = document.createElement('div');
+  section.className = 'head-grid-section';
+
+  const title = document.createElement('h5');
+  const expertCount = getMoEExpertCount(moeDetail);
+  title.textContent = `MoE Components${expertCount ? ` · ${expertCount} experts packed` : ''}`;
+  section.appendChild(title);
+
+  const label = document.createElement('div');
+  label.className = 'head-grid-label';
+  label.textContent = 'Inspectable routing and expert tensors';
+  section.appendChild(label);
+
+  const grid = document.createElement('div');
+  grid.className = 'head-grid';
+  buttons.forEach(([kind, tensor]) => {
+    const config = getMoESelectionConfig(kind);
+    const tooltip = kind === 'moe-experts'
+      ? `${config?.title || tensor?.label || kind}${expertCount ? ` • ${expertCount} packed experts` : ''}`
+      : `${config?.title || tensor?.label || kind} ${formatDimsLabel(tensor?.shape)}${kind === 'moe-router' || !expertCount ? '' : ` • ${expertCount} packed experts`}`;
+    grid.appendChild(createHeadCellButton(
+      kind,
+      undefined,
+      config?.shortLabel || tensor?.label || kind,
+      selectedHead?.kind === kind,
+      false,
+      tooltip,
+      onSelectHead,
+    ));
+  });
+  section.appendChild(grid);
+
+  const hint = document.createElement('div');
+  hint.className = 'head-grid-hint';
+  hint.textContent = 'Use these selectors—or click the Router / Up / Gate / Down regions in the SVG wiring—to inspect tensor metadata and MoE weight heatmaps.';
+  section.appendChild(hint);
+
+  container.appendChild(section);
+}
+
 function renderInspector(container, stage, model, selectedHead = null, uiState = {}) {
   if (!stage) {
     container.innerHTML = `
@@ -632,13 +1072,16 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
   // Build head info section
   let headHTML = '';
   let headSelectorHTML = '';
-  let selectedHeadDetail = null;
-  let selectedHeadHTML = '';
   const hi = stage.headInfo;
-  if (hi && hi.headCount) {
-    const typeLabel = getAttentionTypeLabel(hi, true);
-    selectedHeadDetail = getSelectedHeadDetail(stage, selectedHead);
-    headSelectorHTML = '<div data-head-grid></div>';
+  const hasMLPSelection = !!(stage.mlpDetail?.up || stage.mlpDetail?.gate || stage.mlpDetail?.down);
+  const hasMoESelection = !!(stage.moeDetail?.router || stage.moeDetail?.experts);
+  const hasSSMSelection = !!(stage.ssmDetail?.norm || stage.ssmDetail?.input || stage.ssmDetail?.conv1d || stage.ssmDetail?.selective || stage.ssmDetail?.a || stage.ssmDetail?.dt || stage.ssmDetail?.d || stage.ssmDetail?.output);
+  const hasSelectorGrid = !!(hi?.headCount || hasMLPSelection || hasMoESelection);
+  const hasSelectableDetail = !!(hi?.headCount || hasMLPSelection || hasMoESelection || hasSSMSelection);
+  const selectedHeadDetail = hasSelectableDetail ? getSelectedHeadDetail(stage, selectedHead) : null;
+  let selectedHeadHTML = '';
+  if (hasSelectableDetail) {
+    headSelectorHTML = hasSelectorGrid ? '<div data-head-grid></div>' : '';
     selectedHeadHTML = selectedHeadDetail
       ? `
         <div class="selected-head-card">
@@ -661,11 +1104,14 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
       : `
         <div class="selected-head-card placeholder">
           <div class="selected-head-header">
-            <span class="head-chip">Selected head inspector</span>
+            <span class="head-chip">Selected component inspector</span>
           </div>
-          <p class="selected-head-note">Click a Q, KV, or Wo node in the SVG wiring diagram—or any head cell in the grid—to inspect its slice, mapping, params, memory, quantization, and weight heatmap.</p>
+          <p class="selected-head-note">Click a Q, KV, Wo, MLP, MoE, or SSM node in the SVG wiring diagram${hasSelectorGrid ? ', or any selector pill above,' : ''} to inspect tensor slices, params, memory, quantization, and weight heatmaps.</p>
         </div>
       `;
+  }
+  if (hi && hi.headCount) {
+    const typeLabel = getAttentionTypeLabel(hi, true);
     headHTML = `
       <div class="attn-detail-section">
         <h4 style="margin:10px 0 6px;color:#c6cfdd;font-size:13px">Attention Heads — ${typeLabel}</h4>
@@ -695,8 +1141,10 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
   `;
 
   const headGridHost = container.querySelector('[data-head-grid]');
-  if (headGridHost && hi?.headCount) {
-    renderHTMLHeadGrid(headGridHost, hi, selectedHead, uiState.onSelectHead || null);
+  if (headGridHost) {
+    if (hi?.headCount) renderHTMLHeadGrid(headGridHost, hi, selectedHead, uiState.onSelectHead || null);
+    if (hasMLPSelection) renderHTMLMLPGrid(headGridHost, stage.mlpDetail, selectedHead, uiState.onSelectHead || null);
+    if (hasMoESelection) renderHTMLMoEGrid(headGridHost, stage.moeDetail, selectedHead, uiState.onSelectHead || null);
   }
 
   const decodeHost = container.querySelector('[data-head-decode]');
@@ -742,6 +1190,10 @@ function nodeTooltip(node) {
   if (!node.detail) return node.label;
   const parts = [node.label];
   if (node.detail.shape?.length) parts.push(`Shape: [${formatShape(node.detail.shape)}]`);
+  if (node.detail.tensors?.length) {
+    parts.push(`Tensors: ${node.detail.tensors.map((tensor) => tensor.label || tensor.component || tensor.name).join(' • ')}`);
+    if (node.detail.expertCount) parts.push(`Packed experts: ${node.detail.expertCount}`);
+  }
   parts.push(`Params: ${formatParams(node.detail.params)}`);
   parts.push(`Memory: ${formatBytes(node.detail.memoryBytes)}`);
   if (node.detail.typeName) parts.push(`Quant: ${node.detail.typeName}`);
@@ -750,20 +1202,28 @@ function nodeTooltip(node) {
 
 function drawNodeBox(group, cx, cy, w, h, node) {
   const g = svgElement('g');
+  const selected = !!node.selected;
+  const related = !!node.related;
+  const stroke = selected ? COLORS.selected : related ? '#8db6e7' : (COLORS[node.type] || '#6f7a8e');
   g.appendChild(svgElement('rect', {
     x: cx - w / 2, y: cy - h / 2, width: w, height: h, rx: 10,
-    fill: '#202530', stroke: COLORS[node.type] || '#6f7a8e', 'stroke-width': 1.5,
+    fill: selected ? '#253446' : '#202530', stroke, 'stroke-width': selected ? 2.2 : related ? 1.8 : 1.5,
   }));
   g.appendChild(svgElement('text', {
-    x: cx, y: cy + 4, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 600, fill: '#fff',
+    x: cx, y: cy + 4, 'text-anchor': 'middle', 'font-size': node.textSize || 10, 'font-weight': 600, fill: '#fff',
   }, node.label));
   g.appendChild(svgElement('title', {}, nodeTooltip(node)));
-  if (node.detail?.shape?.length) {
+  if (node.showShape !== false && node.detail?.shape?.length) {
     g.appendChild(svgElement('text', {
-      x: cx, y: cy + h / 2 + 11, 'text-anchor': 'middle', 'font-size': 8.5, fill: '#7a8599',
+      x: cx, y: cy + h / 2 + 11, 'text-anchor': 'middle', 'font-size': node.shapeTextSize || 8.5, fill: '#7a8599',
     }, `[${formatShape(node.detail.shape)}]`));
   }
+  if (node.onClick) {
+    g.style.cursor = 'pointer';
+    g.addEventListener('click', node.onClick);
+  }
   group.appendChild(g);
+  return g;
 }
 
 function drawFlowNode(group, cx, cy, width, height, options) {
@@ -907,10 +1367,29 @@ function getSVGHeadWiringLayout(headInfo, panelWidth) {
 
 function getDetailPanelMetrics(stage) {
   const hasAttnDetail = stage.detailRows.some((row) => row.layout === 'attention-qkv');
-  const diagramYOffset = 48;
-  const panelWidth = hasAttnDetail ? 1020 : 390;
-  const basePanelHeight = hasAttnDetail ? 260 : 240;
-  const headDiagramTopGap = 168;
+  const hasSSMDetail = stage.detailRows.some((row) => row.layout === 'ssm');
+  const hasMLPDetail = stage.detailRows.some((row) => row.layout === 'mlp');
+  const hasMoEDetail = stage.detailRows.some((row) => isMoERow(row));
+  const hasTripleDetail = hasAttnDetail && hasSSMDetail && hasMLPDetail;
+  const hasSequentialAttnMoE = hasAttnDetail && hasMoEDetail && !hasTripleDetail && !hasSSMDetail && !hasMLPDetail;
+  const hasSequentialSSMMLP = hasSSMDetail && hasMLPDetail;
+  let diagramYOffset = 68;
+  if (hasMoEDetail) {
+    const moeRowYOffset = hasSequentialAttnMoE ? MOE_SUBDIAGRAM_ROW_OFFSET : -48;
+    const moeFootprint = getMoEVerticalFootprint(stage.moeDetail, moeRowYOffset, hasSequentialAttnMoE);
+    const laneSpread = (moeFootprint.expertCount - 1) * moeFootprint.laneGap;
+    const bottomOverlap = laneSpread / 2 + moeFootprint.laneNodeHeight / 2 + Math.abs(moeRowYOffset) + 16;
+    if (bottomOverlap > diagramYOffset) diagramYOffset = bottomOverlap;
+  }
+  const panelWidth = hasTripleDetail ? 1280 : (hasAttnDetail && hasMoEDetail) ? 1280 : hasAttnDetail ? 1120 : hasSequentialSSMMLP ? 1080 : hasSSMDetail ? 820 : 450;
+  let basePanelHeight = hasTripleDetail ? 340 : hasAttnDetail ? 260 : hasSSMDetail ? 280 : 240;
+  let headDiagramTopGap = hasTripleDetail ? 216 : 140;
+  if (hasMoEDetail) {
+    const moeRowYOffset = hasSequentialAttnMoE ? MOE_SUBDIAGRAM_ROW_OFFSET : -48;
+    const moeFootprint = getMoEVerticalFootprint(stage.moeDetail, moeRowYOffset, hasSequentialAttnMoE);
+    basePanelHeight = Math.max(basePanelHeight, 176 + moeFootprint.bankBottomOffset);
+    if (hasAttnDetail) headDiagramTopGap = Math.max(headDiagramTopGap, 84 + moeFootprint.bankBottomOffset);
+  }
   const wiringLayout = hasAttnDetail && stage.headInfo?.headCount
     ? getSVGHeadWiringLayout(stage.headInfo, panelWidth)
     : null;
@@ -918,6 +1397,9 @@ function getDetailPanelMetrics(stage) {
 
   return {
     hasAttnDetail,
+    hasTripleDetail,
+    headDiagramTopGap,
+    diagramYOffset,
     panelWidth,
     panelHeight: basePanelHeight + diagramYOffset + headDiagramHeight,
   };
@@ -948,8 +1430,8 @@ function drawSVGHeadWiring(group, stage, panelX, chartTopY, panelWidth, selected
   const qDims = formatDimsLabel([headInfo.headCount, headInfo.headDim]);
   const kvDims = formatDimsLabel([headInfo.headCountKV || 1, headInfo.headDim]);
   const scoreDims = headInfo.contextLength
-    ? formatDimsLabel([headInfo.contextLength, headInfo.contextLength])
-    : '[ctx × ctx]';
+    ? formatDimsLabel([headInfo.contextLength])
+    : '[ctx]';
   const woSelected = selectedHead?.kind === 'wo';
   const hasWoDetail = !!stage.attentionDetail?.output;
 
@@ -1257,30 +1739,38 @@ function drawSVGHeadWiring(group, stage, panelX, chartTopY, panelWidth, selected
   return 30 + totalHeight;
 }
 
-function drawAttentionPath(group, detail, panelX, mainY, panelWidth) {
-  const rowCenterY = mainY - 50;
+function drawResidualMerge(group, mergeX, mainY) {
+  group.appendChild(svgElement('circle', { cx: mergeX, cy: mainY, r: 11, fill: '#2d3441', stroke: '#5a6478', 'stroke-width': 1.5 }));
+  group.appendChild(svgElement('text', { x: mergeX, y: mainY + 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: '#fff' }, '+'));
+}
+
+function drawAttentionPath(group, detail, panelX, mainY, panelWidth, layout = {}) {
+  const rowCenterY = layout.rowCenterY ?? (mainY - 50);
   const nw = 56; // node width
   const nh = 24; // node height
   const qkvSpacing = 48;
   const color = COLORS.attention;
+  const leadInOffset = 32;
 
   // Horizontal positions
-  const normX = panelX + 116;
-  const qkvX = normX + nw / 2 + 56;
-  const softmaxX = qkvX + nw / 2 + 56;
-  const outProjX = softmaxX + nw / 2 + 56;
-  const mergeX = Math.min(outProjX + nw / 2 + 28, panelX + panelWidth - 50);
+  const entryX = layout.entryX ?? (panelX + 44);
+  const normX = layout.normX ?? (panelX + 116 + leadInOffset);
+  const qkvX = layout.qkvX ?? (normX + nw / 2 + 56);
+  const softmaxX = layout.softmaxX ?? (qkvX + nw / 2 + 56);
+  const outProjX = layout.outProjX ?? (softmaxX + nw / 2 + 56);
+  const mergeX = layout.mergeX ?? Math.min(outProjX + nw / 2 + 28, panelX + panelWidth - 50);
+  const label = layout.label || 'Attention path';
 
-  group.appendChild(svgElement('text', { x: panelX + 20, y: rowCenterY - 38, 'font-size': 10.5, fill: '#9aa4b8' }, 'Attention path'));
+  group.appendChild(svgElement('text', { x: panelX + 20, y: rowCenterY - 38, 'font-size': 10.5, fill: '#9aa4b8' }, label));
 
   // Branch from residual up to norm
   group.appendChild(svgElement('path', {
-    d: `M ${panelX + 44} ${mainY} C ${panelX + 60} ${mainY} ${normX - nw / 2 - 12} ${rowCenterY} ${normX - nw / 2} ${rowCenterY}`,
+    d: `M ${entryX} ${mainY} C ${entryX + 16} ${mainY} ${normX - nw / 2 - 12} ${rowCenterY} ${normX - nw / 2} ${rowCenterY}`,
     fill: 'none', stroke: color, 'stroke-width': 2.2,
   }));
 
   // Attn Norm box
-  drawNodeBox(group, normX, rowCenterY, nw, nh, { label: 'Attn Norm', type: 'norm' });
+  drawNodeBox(group, normX, rowCenterY, nw, nh, { label: 'Attn Norm', type: 'norm', detail: detail.norm });
 
   // Fork lines from Norm → Q, K, V
   const forkStartX = normX + nw / 2;
@@ -1325,45 +1815,356 @@ function drawAttentionPath(group, detail, panelX, mainY, panelWidth) {
     d: `M ${outProjX + nw / 2} ${rowCenterY} C ${outProjX + nw / 2 + 14} ${rowCenterY} ${mergeX - 10} ${mainY} ${mergeX} ${mainY}`,
     fill: 'none', stroke: color, 'stroke-width': 2.2,
   }));
-  group.appendChild(svgElement('circle', { cx: mergeX, cy: mainY, r: 11, fill: '#2d3441', stroke: '#5a6478', 'stroke-width': 1.5 }));
-  group.appendChild(svgElement('text', { x: mergeX, y: mainY + 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: '#fff' }, '+'));
+  drawResidualMerge(group, mergeX, mainY);
 }
 
-function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex) {
-  const nodeWidth = 76;
+function drawMLPRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead, onSelectHead, layout = {}) {
+  const detail = row.mlpDetail || {};
+  const color = COLORS.mlp;
+  const nodeWidth = panelWidth <= 420 ? 72 : 76;
   const nodeHeight = 32;
   const nodeHalfWidth = nodeWidth / 2;
-  const mergeGap = 24;
   const isCompactPanel = panelWidth <= 420;
-  const mergeX = isCompactPanel
+  const leadInOffset = isCompactPanel ? 0 : 32;
+  const entryX = layout.entryX ?? (panelX + 44);
+  const mergeX = layout.mergeX ?? (isCompactPanel
     ? panelX + panelWidth - 74
-    : (rowIndex === 0 ? panelX + panelWidth * 0.62 : panelX + panelWidth * 0.84);
-  const rowY = rowIndex === 0 ? mainY - 58 : mainY + 58;
-  const startX = isCompactPanel ? panelX + 108 : panelX + 124;
+    : (rowIndex === 0 ? panelX + panelWidth * 0.62 : panelX + panelWidth * 0.84));
+  const rowY = layout.rowY ?? (rowIndex === 0 ? mainY - 58 : mainY + 58);
+  const labelY = layout.labelY ?? (rowY - (detail.gate ? 40 : 24));
+  const normX = layout.normX ?? (isCompactPanel ? panelX + 108 : panelX + 124 + leadInOffset);
+  const branchX = layout.branchX ?? (isCompactPanel ? panelX + 196 : panelX + 244 + leadInOffset);
+  const downX = layout.downX ?? (isCompactPanel ? panelX + 282 : panelX + 360 + leadInOffset);
+  const branchSpread = detail.gate ? 22 : 0;
+  const upY = rowY - branchSpread;
+  const gateY = rowY + branchSpread;
+  const mixX = downX - nodeHalfWidth - 22;
+  const label = layout.label || row.label;
+  const labelX = layout.labelX ?? (panelX + 20);
+  const labelAnchor = layout.labelAnchor || 'start';
+
+  group.appendChild(svgElement('text', { x: labelX, y: labelY, 'text-anchor': labelAnchor, 'font-size': 10.5, fill: '#9aa4b8' }, label));
+  drawCurvedConnector(group, [entryX, mainY], [normX - nodeHalfWidth, rowY], {
+    stroke: color,
+    strokeWidth: 2.2,
+    arrow: false,
+  });
+
+  drawNodeBox(group, normX, rowY, nodeWidth, nodeHeight, { label: 'FFN Norm', type: 'norm', detail: detail.norm });
+
+  drawCurvedConnector(group, [normX + nodeHalfWidth, rowY], [branchX - nodeHalfWidth, upY], {
+    stroke: color,
+    strokeWidth: 1.8,
+    arrow: false,
+  });
+  drawNodeBox(group, branchX, upY, nodeWidth, nodeHeight, {
+    label: 'Up',
+    type: 'mlp',
+    detail: detail.up,
+    selected: selectedHead?.kind === 'mlp-up',
+    onClick: detail.up ? () => onSelectHead?.({ kind: 'mlp-up' }) : null,
+  });
+
+  if (detail.gate) {
+    drawCurvedConnector(group, [normX + nodeHalfWidth, rowY], [branchX - nodeHalfWidth, gateY], {
+      stroke: color,
+      strokeWidth: 1.8,
+      arrow: false,
+    });
+    drawNodeBox(group, branchX, gateY, nodeWidth, nodeHeight, {
+      label: 'Gate',
+      type: 'mlp',
+      detail: detail.gate,
+      selected: selectedHead?.kind === 'mlp-gate',
+      onClick: detail.gate ? () => onSelectHead?.({ kind: 'mlp-gate' }) : null,
+    });
+    drawCurvedConnector(group, [branchX + nodeHalfWidth, upY], [mixX, rowY], {
+      stroke: color,
+      strokeWidth: 1.8,
+      arrow: false,
+    });
+    drawCurvedConnector(group, [branchX + nodeHalfWidth, gateY], [mixX, rowY], {
+      stroke: color,
+      strokeWidth: 1.8,
+      arrow: false,
+    });
+    group.appendChild(svgElement('circle', {
+      cx: mixX,
+      cy: rowY,
+      r: 8.5,
+      fill: '#243128',
+      stroke: '#5fba6d',
+      'stroke-width': 1.4,
+    }));
+    group.appendChild(svgElement('text', {
+      x: mixX,
+      y: rowY + 3.5,
+      'text-anchor': 'middle',
+      'font-size': 10,
+      'font-weight': 700,
+      fill: '#ecfff0',
+    }, '×'));
+    group.appendChild(svgElement('line', {
+      x1: mixX + 8.5,
+      y1: rowY,
+      x2: downX - nodeHalfWidth,
+      y2: rowY,
+      stroke: color,
+      'stroke-width': 1.8,
+    }));
+  } else {
+    drawCurvedConnector(group, [branchX + nodeHalfWidth, upY], [downX - nodeHalfWidth, rowY], {
+      stroke: color,
+      strokeWidth: 1.8,
+      arrow: false,
+    });
+  }
+
+  drawNodeBox(group, downX, rowY, nodeWidth, nodeHeight, {
+    label: 'Down',
+    type: 'mlp',
+    detail: detail.down,
+    selected: selectedHead?.kind === 'mlp-down',
+    onClick: detail.down ? () => onSelectHead?.({ kind: 'mlp-down' }) : null,
+  });
+
+  drawCurvedConnector(group, [downX + nodeHalfWidth, rowY], [mergeX, mainY], {
+    stroke: color,
+    strokeWidth: 2.2,
+    arrow: false,
+  });
+  drawResidualMerge(group, mergeX, mainY);
+}
+
+function drawSSMRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead, onSelectHead, layout = {}) {
+  const detail = row.ssmDetail || {};
+  const color = COLORS.ssm;
+  const nodeWidth = 74;
+  const nodeHeight = 30;
+  const sideWidth = 54;
+  const sideHeight = 22;
+  const nodeHalfWidth = nodeWidth / 2;
+  const sideHalfWidth = sideWidth / 2;
+  const leadInOffset = 32;
+  const entryX = layout.entryX ?? (panelX + 44);
+  const mergeX = layout.mergeX ?? (panelX + panelWidth - 44);
+  const rowY = layout.rowY ?? (rowIndex === 0 ? mainY - 58 : mainY + 58);
+  const label = layout.label || row.label;
+  const labelY = layout.labelY ?? (rowY - 78);
+  const normX = layout.normX ?? (panelX + 110 + leadInOffset);
+  const inX = layout.inX ?? (panelX + 204 + leadInOffset);
+  const convX = layout.convX ?? (panelX + 298 + leadInOffset);
+  const selectiveX = layout.selectiveX ?? (panelX + 414 + leadInOffset);
+  const paramX = layout.paramX ?? (panelX + 520 + leadInOffset);
+  const outX = layout.outX ?? (panelX + 620 + leadInOffset);
+  const sideNodes = [
+    { label: 'A', detail: detail.a, y: rowY - 58 },
+    { label: 'Δt', detail: detail.dt, y: rowY },
+    { label: 'D', detail: detail.d, y: rowY + 58 },
+  ];
+
+  group.appendChild(svgElement('text', { x: panelX + 20, y: labelY, 'font-size': 10.5, fill: '#9aa4b8' }, label));
+
+  drawCurvedConnector(group, [entryX, mainY], [normX - nodeHalfWidth, rowY], {
+    stroke: color,
+    strokeWidth: 2.2,
+    arrow: false,
+  });
+  drawNodeBox(group, normX, rowY, nodeWidth, nodeHeight, {
+    label: detail.normLabel || 'Norm',
+    type: 'norm',
+    detail: detail.norm,
+    selected: selectedHead?.kind === 'ssm-norm',
+    onClick: detail.norm ? () => onSelectHead?.({ kind: 'ssm-norm' }) : null,
+  });
+
+  drawCurvedConnector(group, [normX + nodeHalfWidth, rowY], [inX - nodeHalfWidth, rowY], {
+    stroke: color,
+    strokeWidth: 1.8,
+    arrow: false,
+  });
+  drawNodeBox(group, inX, rowY, nodeWidth, nodeHeight, {
+    label: 'In',
+    type: 'ssm',
+    detail: detail.input,
+    selected: selectedHead?.kind === 'ssm-in',
+    onClick: detail.input ? () => onSelectHead?.({ kind: 'ssm-in' }) : null,
+  });
+
+  drawCurvedConnector(group, [inX + nodeHalfWidth, rowY], [convX - nodeHalfWidth, rowY], {
+    stroke: color,
+    strokeWidth: 1.8,
+    arrow: false,
+  });
+  drawNodeBox(group, convX, rowY, nodeWidth, nodeHeight, {
+    label: 'Conv1D',
+    type: 'ssm',
+    detail: detail.conv1d,
+    selected: selectedHead?.kind === 'ssm-conv',
+    onClick: detail.conv1d ? () => onSelectHead?.({ kind: 'ssm-conv' }) : null,
+  });
+
+  drawCurvedConnector(group, [convX + nodeHalfWidth, rowY], [selectiveX - nodeHalfWidth, rowY], {
+    stroke: color,
+    strokeWidth: 1.8,
+    arrow: false,
+  });
+  drawNodeBox(group, selectiveX, rowY, nodeWidth, nodeHeight, {
+    label: 'Selective',
+    type: 'ssm',
+    detail: detail.selective,
+    selected: selectedHead?.kind === 'ssm-selective',
+    onClick: detail.selective ? () => onSelectHead?.({ kind: 'ssm-selective' }) : null,
+  });
+
+  sideNodes.forEach((node) => {
+    const kind = node.label === 'A'
+      ? 'ssm-a'
+      : node.label === 'Δt'
+        ? 'ssm-dt'
+        : 'ssm-d';
+    drawNodeBox(group, paramX, node.y, sideWidth, sideHeight, {
+      label: node.label,
+      type: 'ssm',
+      detail: node.detail,
+      selected: selectedHead?.kind === kind,
+      onClick: node.detail ? () => onSelectHead?.({ kind }) : null,
+    });
+    group.appendChild(svgElement('line', {
+      x1: selectiveX + nodeHalfWidth,
+      y1: rowY,
+      x2: paramX - sideHalfWidth,
+      y2: node.y,
+      stroke: color,
+      'stroke-width': 1.5,
+      opacity: 0.9,
+    }));
+  });
+
+  drawCurvedConnector(group, [selectiveX + nodeHalfWidth, rowY], [outX - nodeHalfWidth, rowY], {
+    stroke: color,
+    strokeWidth: 1.8,
+    arrow: false,
+  });
+  drawNodeBox(group, outX, rowY, nodeWidth, nodeHeight, {
+    label: 'Out',
+    type: 'ssm',
+    detail: detail.output,
+    selected: selectedHead?.kind === 'ssm-out',
+    onClick: detail.output ? () => onSelectHead?.({ kind: 'ssm-out' }) : null,
+  });
+
+  drawCurvedConnector(group, [outX + nodeHalfWidth, rowY], [mergeX, mainY], {
+    stroke: color,
+    strokeWidth: 2.2,
+    arrow: false,
+  });
+  drawResidualMerge(group, mergeX, mainY);
+}
+
+function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead = null, onSelectHead = null, layout = {}) {
+  const nodeWidth = layout.nodeWidth ?? 76;
+  const nodeHeight = layout.nodeHeight ?? 32;
+  const nodeHalfWidth = nodeWidth / 2;
+  const mergeGap = layout.mergeGap ?? 24;
+  const isCompactPanel = panelWidth <= 420;
+  const leadInOffset = isCompactPanel ? 0 : 32;
+  const mergeX = layout.mergeX ?? (isCompactPanel
+    ? panelX + panelWidth - 74
+    : (rowIndex === 0 ? panelX + panelWidth * 0.62 : panelX + panelWidth * 0.84));
+  const rowY = layout.rowY ?? (rowIndex === 0 ? mainY - 58 : mainY + 58);
+  const startX = layout.startX ?? (isCompactPanel ? panelX + 108 : panelX + 124 + leadInOffset);
   const endX = mergeX - (nodeHalfWidth + mergeGap);
   const span = row.nodes.length > 1 ? (endX - startX) / (row.nodes.length - 1) : 0;
   const firstNodeCenterX = startX;
   const firstNodeLeftX = firstNodeCenterX - nodeHalfWidth;
   const lastNodeCenterX = startX + span * Math.max(0, row.nodes.length - 1);
+  const nodeCenters = row.nodes.map((_, index) => startX + span * index);
+  const label = layout.label || row.label;
+  const labelX = layout.labelX ?? (panelX + 20);
+  const labelAnchor = layout.labelAnchor || 'start';
+  const entryX = layout.entryX ?? (panelX + 44);
 
-  group.appendChild(svgElement('text', { x: panelX + 20, y: rowY - 22, 'font-size': 10.5, fill: '#9aa4b8' }, row.label));
+  group.appendChild(svgElement('text', { x: labelX, y: rowY - 22, 'text-anchor': labelAnchor, 'font-size': 10.5, fill: '#9aa4b8' }, label));
   group.appendChild(svgElement('path', {
-    d: `M ${panelX + 44} ${mainY} C ${panelX + 62} ${mainY} ${firstNodeLeftX - 20} ${rowY} ${firstNodeLeftX} ${rowY}`,
+    d: `M ${entryX} ${mainY} C ${entryX + 18} ${mainY} ${firstNodeLeftX - 20} ${rowY} ${firstNodeLeftX} ${rowY}`,
     fill: 'none', stroke: COLORS[row.nodes[row.nodes.length - 1].type] || COLORS.residual, 'stroke-width': 2.2,
   }));
 
+  (layout.groups || []).forEach((groupSpec) => {
+    const startIndex = groupSpec.startIndex ?? row.nodes.findIndex((node) => node.kind === groupSpec.startKind);
+    const endIndex = groupSpec.endIndex ?? row.nodes.findIndex((node) => node.kind === groupSpec.endKind);
+    if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) return;
+    const left = nodeCenters[startIndex] - nodeHalfWidth - (groupSpec.padX ?? 14);
+    const right = nodeCenters[endIndex] + nodeHalfWidth + (groupSpec.padX ?? 14);
+    const top = rowY - nodeHeight / 2 - (groupSpec.padTop ?? 22);
+    const height = nodeHeight + (groupSpec.padTop ?? 22) + (groupSpec.padBottom ?? 12);
+    const selected = !!(groupSpec.kind && selectedHead?.kind === groupSpec.kind);
+    const stroke = selected ? COLORS.selected : (COLORS[groupSpec.type] || COLORS.residual);
+    const groupNode = svgElement('g');
+    const headerWidth = groupSpec.headerWidth ?? 84;
+    const headerHeight = groupSpec.headerHeight ?? 24;
+    const headerX = left + ((right - left) - headerWidth) / 2;
+    const headerY = top + 10;
+    groupNode.appendChild(svgElement('rect', {
+      x: left,
+      y: top,
+      width: right - left,
+      height,
+      rx: 14,
+      fill: selected ? '#2a3645' : (groupSpec.fill || '#2a312f'),
+      opacity: groupSpec.opacity ?? 0.96,
+      stroke,
+      'stroke-width': selected ? 2.1 : 1.4,
+      'stroke-dasharray': groupSpec.strokeDasharray || '',
+    }));
+    if (groupSpec.label) {
+      groupNode.appendChild(svgElement('rect', {
+        x: headerX,
+        y: headerY,
+        width: headerWidth,
+        height: headerHeight,
+        rx: 10,
+        fill: selected ? '#31455d' : '#313c30',
+        stroke,
+        'stroke-width': selected ? 1.9 : 1.3,
+      }));
+      groupNode.appendChild(svgElement('text', {
+        x: headerX + headerWidth / 2,
+        y: headerY + 15,
+        'text-anchor': 'middle',
+        'font-size': 10.5,
+        'font-weight': 700,
+        fill: selected ? '#d9edff' : '#eef5e8',
+      }, groupSpec.label));
+    }
+    if (groupSpec.detail) groupNode.appendChild(svgElement('title', {}, nodeTooltip({ label: groupSpec.label, detail: groupSpec.detail })));
+    if (groupSpec.kind && groupSpec.detail && onSelectHead) {
+      groupNode.style.cursor = 'pointer';
+      groupNode.addEventListener('click', () => onSelectHead({ kind: groupSpec.kind }));
+    }
+    group.appendChild(groupNode);
+  });
+
   row.nodes.forEach((node, index) => {
-    const nodeCenterX = startX + span * index;
+    const nodeCenterX = nodeCenters[index];
     const nodeGroup = svgElement('g');
+    const isSelected = !!(node.kind && selectedHead?.kind === node.kind);
+    const stroke = isSelected ? COLORS.selected : (COLORS[node.type] || '#6f7a8e');
+    const clickHandler = node.onClick || (node.kind && node.detail ? () => onSelectHead?.({ kind: node.kind }) : null);
     const rect = svgElement('rect', {
       x: nodeCenterX - nodeHalfWidth, y: rowY - nodeHeight / 2, width: nodeWidth, height: nodeHeight, rx: 12,
-      fill: '#202530', stroke: COLORS[node.type] || '#6f7a8e', 'stroke-width': 1.5,
+      fill: isSelected ? '#253446' : '#202530', stroke, 'stroke-width': isSelected ? 2.2 : 1.5,
     });
     const text = svgElement('text', {
       x: nodeCenterX, y: rowY + 4, 'text-anchor': 'middle', 'font-size': 10.5, 'font-weight': 600, fill: '#fff',
     }, node.label);
     nodeGroup.append(rect, text);
     nodeGroup.appendChild(svgElement('title', {}, nodeTooltip(node)));
+    if (clickHandler) {
+      nodeGroup.style.cursor = 'pointer';
+      nodeGroup.addEventListener('click', clickHandler);
+    }
     if (index > 0) {
       nodeGroup.appendChild(svgElement('line', {
         x1: nodeCenterX - span + nodeHalfWidth, y1: rowY, x2: nodeCenterX - nodeHalfWidth, y2: rowY,
@@ -1379,6 +2180,212 @@ function drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex) {
   }));
   group.appendChild(svgElement('circle', { cx: mergeX, cy: mainY, r: 11, fill: '#2d3441', stroke: '#5a6478', 'stroke-width': 1.5 }));
   group.appendChild(svgElement('text', { x: mergeX, y: mainY + 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: '#fff' }, '+'));
+}
+
+function drawMoERow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead = null, onSelectHead = null, layout = {}) {
+  const moeDetail = layout.moeDetail || {};
+  const metrics = getMoEPathMetrics(moeDetail);
+  const {
+    expertCount,
+    laneGap,
+    leadNodeWidth,
+    leadNodeHeight,
+    laneNodeWidth,
+    laneNodeHeight,
+    laneTextSize,
+    firstLaneOffset,
+  } = metrics;
+  const rowY = layout.rowY ?? (rowIndex === 0 ? mainY - 58 : mainY + 58);
+  const mergeX = layout.mergeX ?? (panelX + panelWidth - 76);
+  const entryX = layout.entryX ?? (panelX + 44);
+  const label = layout.label || row.label;
+  const labelX = layout.labelX ?? (panelX + 20);
+  const labelAnchor = layout.labelAnchor || 'start';
+  const labelY = layout.labelY ?? (rowY - 38);
+  const color = COLORS.moe;
+  const laneStep = laneNodeWidth + (layout.componentGap ?? 20);
+
+  const normNode = row.nodes.find((node) => node.type === 'norm') || { label: 'FFN Norm', type: 'norm', detail: moeDetail.norm || null };
+  const routerNode = row.nodes.find((node) => node.kind === 'moe-router') || { label: 'Router', type: 'moe', kind: 'moe-router', detail: moeDetail.router || null };
+  const upNode = row.nodes.find((node) => node.kind === 'moe-up') || { label: 'Up', type: 'moe', kind: 'moe-up', detail: moeDetail.expertUp || null };
+  const gateNode = row.nodes.find((node) => node.kind === 'moe-gate') || (moeDetail.expertGate ? { label: 'Gate', type: 'moe', kind: 'moe-gate', detail: moeDetail.expertGate } : null);
+  const downNode = row.nodes.find((node) => node.kind === 'moe-down') || { label: 'Down', type: 'moe', kind: 'moe-down', detail: moeDetail.expertDown || null };
+
+  const normX = layout.normX ?? (entryX + 92);
+  const routerX = layout.routerX ?? (normX + 112);
+  const fanoutX = layout.fanoutX ?? (routerX + 110);
+  const bankLeft = layout.bankLeft ?? (fanoutX + 14);
+  const laneLabelX = layout.laneLabelX ?? (bankLeft + 48);
+  const upX = layout.upX ?? (laneLabelX + 52);
+  const gateX = gateNode ? (layout.gateX ?? (upX + laneStep)) : null;
+  const downX = layout.downX ?? ((gateNode ? gateX : upX) + laneStep);
+  const lastNodeX = downX;
+  const combineX = layout.combineX ?? (mergeX - 52);
+  const collectorRadius = 8.5;
+  const collectorX = layout.collectorX ?? (combineX + 18);
+
+  const laneClusterCenterY = layout.laneClusterCenterY
+    ?? (rowY + firstLaneOffset + ((expertCount - 1) * laneGap) / 2);
+  const firstLaneY = laneClusterCenterY - ((expertCount - 1) * laneGap) / 2;
+  const lastLaneY = laneClusterCenterY + ((expertCount - 1) * laneGap) / 2;
+  const collectorY = laneClusterCenterY;
+  const expertsSelected = selectedHead?.kind === 'moe-experts';
+
+  group.appendChild(svgElement('text', {
+    x: labelX,
+    y: labelY,
+    'text-anchor': labelAnchor,
+    'font-size': 10.5,
+    fill: '#9aa4b8',
+  }, label));
+
+  group.appendChild(svgElement('path', {
+    d: `M ${entryX} ${mainY} C ${entryX + 18} ${mainY} ${normX - leadNodeWidth / 2 - 20} ${rowY} ${normX - leadNodeWidth / 2} ${rowY}`,
+    fill: 'none',
+    stroke: color,
+    'stroke-width': 2.2,
+  }));
+
+  drawNodeBox(group, normX, rowY, leadNodeWidth, leadNodeHeight, {
+    label: normNode.label,
+    type: normNode.type,
+    detail: normNode.detail,
+  });
+
+  group.appendChild(svgElement('line', {
+    x1: normX + leadNodeWidth / 2,
+    y1: rowY,
+    x2: routerX - leadNodeWidth / 2,
+    y2: rowY,
+    stroke: color,
+    'stroke-width': 2,
+  }));
+
+  drawNodeBox(group, routerX, rowY, leadNodeWidth, leadNodeHeight, {
+    label: routerNode.label,
+    type: routerNode.type,
+    detail: routerNode.detail,
+    selected: selectedHead?.kind === routerNode.kind,
+    onClick: routerNode.detail ? () => onSelectHead?.({ kind: routerNode.kind }) : null,
+  });
+
+  for (let expertIndex = 0; expertIndex < expertCount; expertIndex += 1) {
+    const laneY = firstLaneY + expertIndex * laneGap;
+    const laneEntryX = upX - laneNodeWidth / 2;
+    drawCurvedConnector(group, [routerX + leadNodeWidth / 2, rowY], [laneEntryX, laneY], {
+      stroke: expertsSelected ? COLORS.selected : color,
+      strokeWidth: expertsSelected ? 1.75 : 1.45,
+      arrow: false,
+      opacity: 0.88,
+    });
+  }
+
+  if (expertCount > 1) {
+    group.appendChild(svgElement('line', {
+      x1: combineX,
+      y1: firstLaneY,
+      x2: combineX,
+      y2: lastLaneY,
+      stroke: color,
+      'stroke-width': 1.6,
+      opacity: 0.86,
+    }));
+  }
+
+  for (let expertIndex = 0; expertIndex < expertCount; expertIndex += 1) {
+    const laneY = firstLaneY + expertIndex * laneGap;
+    const laneEntryX = upX - laneNodeWidth / 2;
+    const branchStroke = expertsSelected ? COLORS.selected : color;
+
+    group.appendChild(svgElement('text', {
+      x: laneLabelX,
+      y: laneY + 3,
+      'text-anchor': 'middle',
+      'font-size': 8.5,
+      'font-weight': 600,
+      fill: '#c5cfde',
+    }, `E${expertIndex}`));
+
+    drawNodeBox(group, upX, laneY, laneNodeWidth, laneNodeHeight, {
+      label: upNode.label,
+      type: upNode.type,
+      detail: upNode.detail,
+      selected: selectedHead?.kind === upNode.kind,
+      onClick: upNode.detail ? () => onSelectHead?.({ kind: upNode.kind }) : null,
+      showShape: false,
+      textSize: laneTextSize,
+    });
+
+    const laneBoxes = [{ node: upNode, x: upX }];
+    if (gateNode) laneBoxes.push({ node: gateNode, x: gateX });
+    laneBoxes.push({ node: downNode, x: downX });
+
+    for (let index = 1; index < laneBoxes.length; index += 1) {
+      const prev = laneBoxes[index - 1];
+      const next = laneBoxes[index];
+      group.appendChild(svgElement('line', {
+        x1: prev.x + laneNodeWidth / 2,
+        y1: laneY,
+        x2: next.x - laneNodeWidth / 2,
+        y2: laneY,
+        stroke: color,
+        'stroke-width': 1.6,
+      }));
+      drawNodeBox(group, next.x, laneY, laneNodeWidth, laneNodeHeight, {
+        label: next.node.label,
+        type: next.node.type,
+        detail: next.node.detail,
+        selected: selectedHead?.kind === next.node.kind,
+        onClick: next.node.detail ? () => onSelectHead?.({ kind: next.node.kind }) : null,
+        showShape: false,
+        textSize: laneTextSize,
+      });
+    }
+
+    group.appendChild(svgElement('line', {
+      x1: lastNodeX + laneNodeWidth / 2,
+      y1: laneY,
+      x2: combineX,
+      y2: laneY,
+      stroke: color,
+      'stroke-width': 1.6,
+      opacity: 0.9,
+    }));
+  }
+
+  group.appendChild(svgElement('line', {
+    x1: combineX,
+    y1: collectorY,
+    x2: collectorX - collectorRadius,
+    y2: collectorY,
+    stroke: color,
+    'stroke-width': 1.8,
+    opacity: 0.92,
+  }));
+  group.appendChild(svgElement('circle', {
+    cx: collectorX,
+    cy: collectorY,
+    r: collectorRadius,
+    fill: expertsSelected ? '#314055' : '#3a3320',
+    stroke: expertsSelected ? COLORS.selected : '#d7c55a',
+    'stroke-width': expertsSelected ? 1.8 : 1.35,
+  }));
+  group.appendChild(svgElement('text', {
+    x: collectorX,
+    y: collectorY + 3.5,
+    'text-anchor': 'middle',
+    'font-size': 10,
+    'font-weight': 700,
+    fill: expertsSelected ? '#e8f3ff' : '#fff6bf',
+  }, 'Σ'));
+
+  drawCurvedConnector(group, [collectorX + collectorRadius, collectorY], [mergeX, mainY], {
+    stroke: color,
+    strokeWidth: 2.2,
+    opacity: 0.95,
+    arrow: false,
+  });
+  drawResidualMerge(group, mergeX, mainY);
 }
 
 function drawHeadCell(group, options) {
@@ -1620,8 +2627,7 @@ function drawHeadGrid(group, headInfo, panelX, gridTopY, panelWidth, selectedHea
 }
 
 function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSelectHead = null) {
-  const { hasAttnDetail, panelWidth, panelHeight } = getDetailPanelMetrics(stage);
-  const diagramYOffset = 48;
+  const { hasAttnDetail, hasTripleDetail, headDiagramTopGap, diagramYOffset, panelWidth, panelHeight } = getDetailPanelMetrics(stage);
   const panelMinX = 36;
   const panelMaxX = Math.max(panelMinX, contentWidth - panelWidth - 36);
   const panelX = clamp(stage.x + stage.width / 2 - panelWidth / 2, panelMinX, panelMaxX);
@@ -1647,17 +2653,129 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
   group.appendChild(svgElement('text', { x: panelX + 18, y: mainY - 10, 'font-size': 10.5, fill: '#bac3d2' }, 'input'));
   group.appendChild(svgElement('text', { x: panelX + panelWidth - 46, y: mainY - 10, 'font-size': 10.5, fill: '#bac3d2' }, 'output'));
 
-  stage.detailRows.forEach((row, rowIndex) => {
-    if (row.layout === 'attention-qkv' && row.attentionDetail) {
-      drawAttentionPath(group, row.attentionDetail, panelX, mainY, panelWidth);
-    } else {
-      drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex);
-    }
-  });
+  const attentionRow = stage.detailRows.find((row) => row.layout === 'attention-qkv' && row.attentionDetail);
+  const ssmRow = stage.detailRows.find((row) => row.layout === 'ssm' && row.ssmDetail);
+  const mlpRow = stage.detailRows.find((row) => row.layout === 'mlp' && row.mlpDetail);
+  const moeRow = stage.detailRows.find((row) => isMoERow(row));
+  const renderParallelAttnSSMMLP = !!(attentionRow && ssmRow && mlpRow);
+  const renderSequentialAttnMoE = !!(!renderParallelAttnSSMMLP && attentionRow && moeRow);
+  const renderSequentialAttnMLP = !!(!renderParallelAttnSSMMLP && !renderSequentialAttnMoE && attentionRow && mlpRow);
+  const renderSequentialSSMMLP = !!(!renderParallelAttnSSMMLP && !renderSequentialAttnMoE && !renderSequentialAttnMLP && ssmRow && mlpRow);
+
+  if (renderParallelAttnSSMMLP) {
+    const firstMergeX = panelX + 700;
+    const secondMergeX = panelX + panelWidth - 82;
+    const mixerRowY = mainY - 72;
+    const ssmRowY = mainY + 78;
+    drawAttentionPath(group, attentionRow.attentionDetail, panelX, mainY, panelWidth, {
+      label: 'Attention sublayer',
+      rowCenterY: mixerRowY,
+      mergeX: firstMergeX,
+    });
+    drawSSMRow(group, ssmRow, panelX, mainY, panelWidth, 1, selectedHead, onSelectHead, {
+      label: 'SSM sublayer',
+      rowY: ssmRowY,
+      labelY: mainY + 18,
+      mergeX: firstMergeX,
+      normX: panelX + 150,
+      inX: panelX + 252,
+      convX: panelX + 354,
+      selectiveX: panelX + 474,
+      paramX: panelX + 584,
+      outX: panelX + 650,
+    });
+    drawMLPRow(group, mlpRow, panelX, mainY, panelWidth, 1, selectedHead, onSelectHead, {
+      label: 'MLP sublayer',
+      labelX: panelX + panelWidth - 22,
+      labelAnchor: 'end',
+      entryX: firstMergeX + 28,
+      mergeX: secondMergeX,
+      rowY: mixerRowY,
+      normX: firstMergeX + 160,
+      branchX: firstMergeX + 296,
+      downX: firstMergeX + 432,
+    });
+  } else if (renderSequentialAttnMoE) {
+    const firstMergeX = panelX + 430;
+    const secondMergeX = panelX + panelWidth - 76;
+    drawAttentionPath(group, attentionRow.attentionDetail, panelX, mainY, panelWidth, {
+      label: 'Attention sublayer',
+      rowCenterY: mainY - 48,
+      mergeX: firstMergeX,
+    });
+    drawMoERow(group, moeRow, panelX, mainY, panelWidth, 1, selectedHead, onSelectHead, {
+      label: 'MoE sublayer',
+      entryX: firstMergeX + 28,
+      mergeX: secondMergeX,
+      rowY: mainY + MOE_SUBDIAGRAM_ROW_OFFSET,
+      laneClusterCenterY: mainY + MOE_SUBDIAGRAM_ROW_OFFSET,
+      moeDetail: stage.moeDetail,
+    });
+  } else if (renderSequentialAttnMLP) {
+    const firstMergeX = panelX + 520;
+    const secondMergeX = panelX + panelWidth - 82;
+    drawAttentionPath(group, attentionRow.attentionDetail, panelX, mainY, panelWidth, {
+      label: 'Attention sublayer',
+      rowCenterY: mainY - 48,
+      mergeX: firstMergeX,
+    });
+    drawMLPRow(group, mlpRow, panelX, mainY, panelWidth, 1, selectedHead, onSelectHead, {
+      label: 'MLP sublayer',
+      labelX: panelX + panelWidth - 22,
+      labelAnchor: 'end',
+      entryX: firstMergeX + 28,
+      mergeX: secondMergeX,
+      rowY: mainY - 48,
+      normX: firstMergeX + 158,
+      branchX: firstMergeX + 284,
+      downX: firstMergeX + 418,
+    });
+  } else if (renderSequentialSSMMLP) {
+    const firstMergeX = panelX + 640;
+    const secondMergeX = panelX + panelWidth - 82;
+    const mlpRowY = mainY - 72;
+    const ssmRowY = mainY + 72;
+    drawSSMRow(group, ssmRow, panelX, mainY, panelWidth, 0, selectedHead, onSelectHead, {
+      label: 'SSM sublayer',
+      rowY: ssmRowY,
+      mergeX: firstMergeX,
+      normX: panelX + 142,
+      inX: panelX + 260,
+      convX: panelX + 378,
+      selectiveX: panelX + 518,
+      paramX: panelX + 652,
+      outX: panelX + 768,
+    });
+    drawMLPRow(group, mlpRow, panelX, mainY, panelWidth, 1, selectedHead, onSelectHead, {
+      label: 'MLP sublayer',
+      entryX: firstMergeX + 28,
+      mergeX: secondMergeX,
+      rowY: mlpRowY,
+      normX: firstMergeX + 140,
+      branchX: firstMergeX + 268,
+      downX: firstMergeX + 404,
+    });
+  } else {
+    stage.detailRows.forEach((row, rowIndex) => {
+      if (row.layout === 'attention-qkv' && row.attentionDetail) {
+        drawAttentionPath(group, row.attentionDetail, panelX, mainY, panelWidth);
+      } else if (row.layout === 'mlp' && row.mlpDetail) {
+        drawMLPRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead, onSelectHead);
+      } else if (row.layout === 'ssm' && row.ssmDetail) {
+        drawSSMRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead, onSelectHead);
+      } else if (isMoERow(row)) {
+        drawMoERow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead, onSelectHead, {
+          moeDetail: stage.moeDetail,
+        });
+      } else {
+        drawLinearRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHead, onSelectHead);
+      }
+    });
+  }
 
   if (hasAttnDetail && stage.headInfo?.headCount) {
-    const separatorY = mainY + 52;
-    drawSVGHeadWiring(group, stage, panelX, separatorY + 78, panelWidth, selectedHead, onSelectHead);
+    const wiringTopY = mainY + (headDiagramTopGap - 38);
+    drawSVGHeadWiring(group, stage, panelX, wiringTopY, panelWidth, selectedHead, onSelectHead);
   }
 
   camera.appendChild(group);
@@ -1666,7 +2784,7 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
 export function renderResidualFlow(container, model, uiState = {}) {
   const graph = buildResidualFlowGraph(model);
   const selectedStage = graph.stages.find(stage => stage.type === 'block' && stage.index === uiState.selectedLayerIndex) || null;
-  const selectedHead = selectedStage?.headInfo?.headCount ? uiState.selectedHead || null : null;
+  const selectedHead = selectedStage ? uiState.selectedHead || null : null;
   const wrapper = document.createElement('section');
   wrapper.className = 'architecture-view';
 
@@ -1719,13 +2837,17 @@ export function renderResidualFlow(container, model, uiState = {}) {
   svg.appendChild(camera);
 
   const baseY = 116;
-  let cursor = 72;
+  const stageLeftPadding = 72;
+  const stageGap = 48;
+  const contentRightPadding = 48;
+  let cursor = stageLeftPadding;
   for (const stage of graph.stages) {
     stage.x = cursor;
     stage.y = baseY - stage.height / 2;
-    cursor += stage.width + 48;
+    cursor += stage.width + stageGap;
   }
-  const contentWidth = cursor + 48;
+  const detailPanelWidth = selectedStage ? getDetailPanelMetrics(selectedStage).panelWidth : 0;
+  const contentWidth = Math.max(cursor + contentRightPadding, detailPanelWidth + 72);
   const contentHeight = selectedStage ? Math.max(470, detailPanelHeight - 90) : 210;
   const background = svgElement('rect', {
     x: 0, y: 0, width: contentWidth, height: Math.max(contentHeight + 80, viewportHeight), fill: 'transparent',

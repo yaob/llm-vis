@@ -118,6 +118,7 @@ function renderDataflow(layer) {
   const comps = new Set(layer.tensors.map(t => t.component));
   const hasGate = comps.has('ffn_gate');
   const hasMoE = comps.has('ffn_gate_inp');
+  const hasMoEGate = comps.has('ffn_gate_exp');
 
   const nodes = [
     { id: 'in', label: 'Input' },
@@ -136,7 +137,12 @@ function renderDataflow(layer) {
     { id: 'fnorm', label: 'Norm' },
   );
   if (hasMoE) {
-    nodes.push({ id: 'router', label: 'Router' }, { id: 'experts', label: 'Experts' });
+    nodes.push(
+      { id: 'router', label: 'Router' },
+      { id: 'up', label: 'Up' },
+      ...(hasMoEGate ? [{ id: 'gate', label: 'Gate' }] : []),
+      { id: 'down', label: 'Down' },
+    );
   } else if (hasGate) {
     nodes.push({ id: 'gate', label: 'Gate' }, { id: 'up', label: 'Up' }, { id: 'down', label: 'Down' });
   } else {
