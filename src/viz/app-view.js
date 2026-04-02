@@ -77,9 +77,10 @@ function renderTokenizerInfo(model) {
 }
 
 function renderFfnInfo(model) {
-  if (!model.ffnHiddenDim) return '';
+  if (!model.ffnHiddenDim && !model.normType) return '';
   const items = [];
-  items.push(`<span class="attn-geo-item">FFN hidden: <strong>${Number(model.ffnHiddenDim).toLocaleString()}</strong></span>`);
+  if (model.normType) items.push(`<span class="attn-geo-item">Norm: <strong>${model.normType}</strong></span>`);
+  if (model.ffnHiddenDim) items.push(`<span class="attn-geo-item">FFN hidden: <strong>${Number(model.ffnHiddenDim).toLocaleString()}</strong></span>`);
   if (model.ffnExpansionRatio != null) {
     items.push(`<span class="attn-geo-item">Expansion: <strong>${model.ffnExpansionRatio.toFixed(2)}×</strong></span>`);
   }

@@ -109,6 +109,27 @@ export function analyzeModel(gguf) {
   const headDim = headCount > 0 ? Math.round(embeddingLength / headCount) : 0;
   const gqaRatio = headCountKV > 0 ? Math.round(headCount / headCountKV) : 1;
 
+  // Detect norm type
+  const ARCH_NORM = {
+    llama: 'RMSNorm', mistral: 'RMSNorm', qwen2: 'RMSNorm', qwen2moe: 'RMSNorm',
+    gemma: 'RMSNorm', gemma2: 'RMSNorm', phi3: 'RMSNorm',
+    internlm2: 'RMSNorm', yi: 'RMSNorm', deepseek: 'RMSNorm', deepseek2: 'RMSNorm',
+    starcoder2: 'LayerNorm', gpt2: 'LayerNorm', falcon: 'LayerNorm',
+    phi: 'LayerNorm', bloom: 'LayerNorm', mpt: 'LayerNorm',
+    mamba: 'RMSNorm', jamba: 'RMSNorm', command_r: 'RMSNorm', cohere: 'RMSNorm',
+    olmo: 'LayerNorm', stablelm: 'LayerNorm',
+  };
+  let normType = ARCH_NORM[arch] || null;
+  if (!normType) {
+    // Heuristic: RMSNorm weight tensors are 1D; LayerNorm also has a bias tensor
+    const normTensors = tensors.filter(t => {
+      const c = parseTensorName(t.name).component;
+      return c === 'attn_norm' || c === 'ffn_norm' || c === 'output_norm';
+    });
+    const hasBias = normTensors.some(t => t.name.endsWith('.bias') || t.name.includes('_bias'));
+    normType = normTensors.length ? (hasBias ? 'LayerNorm' : 'RMSNorm') : null;
+  }
+
   // Detect activation function from architecture
   const ARCH_ACTIVATION = {
     llama: 'SiLU', mistral: 'SiLU', qwen2: 'SiLU', qwen2moe: 'SiLU',
@@ -224,7 +245,7 @@ export function analyzeModel(gguf) {
 
   return {
     arch, modelName, blockCount, embeddingLength, headCount, headCountKV, headDim, gqaRatio,
-    contextLength, vocabSize, activationFunction, ffnHiddenDim, ffnExpansionRatio,
+    contextLength, vocabSize, activationFunction, normType, ffnHiddenDim, ffnExpansionRatio,
     totalParams, totalMemory, layers, version: gguf.version,
     quantProfile, fileType,
     metadata,
