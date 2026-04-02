@@ -40,6 +40,24 @@ function getMeta(model, ...keys) {
   return null;
 }
 
+function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function renderProvenance(model) {
+  const md = model.metadata || {};
+  const author = md['general.author'] || null;
+  const url = md['general.url'] || md['general.source.url'] || null;
+  const license = md['general.license'] || null;
+  const desc = md['general.description'] || null;
+  if (!author && !url && !license && !desc) return '';
+  const items = [];
+  if (author) items.push(`<span class="attn-geo-item">Author: <strong>${escHtml(author)}</strong></span>`);
+  if (license) items.push(`<span class="attn-geo-item">License: <strong>${escHtml(license)}</strong></span>`);
+  if (url) items.push(`<span class="attn-geo-item"><a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:#61afef;text-decoration:none">${escHtml(url)}</a></span>`);
+  let html = `<div class="attn-geometry">${items.join('<span class="attn-geo-sep">·</span>')}</div>`;
+  if (desc) html += `<div class="model-description">${escHtml(desc)}</div>`;
+  return html;
+}
+
 function renderTokenizerInfo(model) {
   const md = model.metadata || {};
   const tokModel = md['tokenizer.ggml.model'] || null;
@@ -133,6 +151,7 @@ function renderSummary(model) {
       <div class="summary-item"><span class="label">Vocab</span><span class="value">${model.vocabSize}</span></div>
       <div class="summary-item"><span class="label">Version</span><span class="value">v${model.version}</span></div>
     </div>
+    ${renderProvenance(model)}
     ${renderAttentionGeometry(model)}
     ${renderRopeInfo(model)}
     ${renderTokenizerInfo(model)}
