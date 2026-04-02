@@ -31,6 +31,33 @@ function renderAttentionGeometry(model) {
   </div>`;
 }
 
+function getMeta(model, ...keys) {
+  const arch = model.arch || '';
+  for (const k of keys) {
+    const v = model.metadata?.[`${arch}.${k}`] ?? model.metadata?.[k];
+    if (v != null) return v;
+  }
+  return null;
+}
+
+function renderRopeInfo(model) {
+  const freqBase = getMeta(model, 'rope.freq_base', 'rope_freq_base');
+  const scalingType = getMeta(model, 'rope.scaling.type', 'rope_scaling_type');
+  const ropeDim = getMeta(model, 'rope.dimension_count', 'rope_dimension_count');
+  const scalingFactor = getMeta(model, 'rope.scaling.factor', 'rope_scaling_factor');
+  if (freqBase == null && scalingType == null && ropeDim == null) return '';
+  const items = [];
+  if (ropeDim != null) items.push(`<span class="attn-geo-item"><strong>${ropeDim}</strong> RoPE dim</span>`);
+  if (freqBase != null) items.push(`<span class="attn-geo-item">base <strong>${Number(freqBase).toLocaleString()}</strong></span>`);
+  if (scalingType) {
+    let label = scalingType;
+    if (scalingFactor != null) label += ` ×${scalingFactor}`;
+    items.push(`<span class="attn-geo-item">scaling: <strong>${label}</strong></span>`);
+  }
+  if (!items.length) return '';
+  return `<div class="attn-geometry">${items.join('<span class="attn-geo-sep">·</span>')}</div>`;
+}
+
 // Standard GGML file type IDs → human labels
 const GGML_FILE_TYPES = {
   0: 'F32', 1: 'F16', 2: 'Q4_0', 3: 'Q4_1', 7: 'Q8_0',
@@ -89,6 +116,7 @@ function renderSummary(model) {
       <div class="summary-item"><span class="label">Version</span><span class="value">v${model.version}</span></div>
     </div>
     ${renderAttentionGeometry(model)}
+    ${renderRopeInfo(model)}
     ${renderQuantProfile(model)}
   `;
   return summary;
