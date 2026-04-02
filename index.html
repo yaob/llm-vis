@@ -33,6 +33,18 @@
         .summary-item .label { display: block; font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
         .summary-item .value { display: block; font-size: 1rem; color: #fff; margin-top: 2px; font-weight: 600; }
 
+        /* Quantization profile */
+        .quant-profile { margin-top: 14px; }
+        .quant-profile-header { font-size: 0.78rem; color: #999; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
+        .quant-profile-header strong { color: #e6894a; }
+        .quant-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 1px; background: #1a1d23; }
+        .quant-bar-seg { min-width: 3px; border-radius: 2px; transition: opacity 0.15s; cursor: default; }
+        .quant-bar-seg:hover { opacity: 0.75; }
+        .quant-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+        .quant-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 0.74rem; color: #bbb; }
+        .quant-legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+        .quant-legend-pct { color: #888; }
+
         /* View tabs */
         .view-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
         .view-tab { padding: 8px 14px; background: #22262e; color: #aaa; border: 1px solid #3a3f4b; border-radius: 999px; cursor: pointer; font-size: 0.85rem; }

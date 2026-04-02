@@ -196,10 +196,28 @@ export function analyzeModel(gguf) {
   const totalParams = tensors.reduce((s, t) => s + t.numElements, 0);
   const totalMemory = tensors.reduce((s, t) => s + (t.memoryBytes || 0), 0);
 
+  // Quantization profile: count tensors and bytes per quant type
+  const quantCounts = {};
+  for (const t of tensors) {
+    const typeName = t.typeName || `unknown(${t.type})`;
+    if (!quantCounts[typeName]) quantCounts[typeName] = { count: 0, bytes: 0, params: 0 };
+    quantCounts[typeName].count += 1;
+    quantCounts[typeName].bytes += (computeTensorBytes(t.type, t.numElements) || 0);
+    quantCounts[typeName].params += t.numElements;
+  }
+  // Sort by byte share descending
+  const quantProfile = Object.entries(quantCounts)
+    .map(([type, d]) => ({ type, ...d, pct: totalMemory > 0 ? d.bytes / totalMemory : 0 }))
+    .sort((a, b) => b.bytes - a.bytes);
+
+  const fileType = metadata['general.file_type'] ?? null;
+
   return {
     arch, modelName, blockCount, embeddingLength, headCount, headCountKV, headDim, gqaRatio,
     contextLength, vocabSize, activationFunction,
     totalParams, totalMemory, layers, version: gguf.version,
+    quantProfile, fileType,
+    metadata,
     ggufSource: gguf.source || null,
     ggufInfo: {
       alignment: gguf.alignment || 32,

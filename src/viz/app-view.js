@@ -31,6 +31,47 @@ function renderAttentionGeometry(model) {
   </div>`;
 }
 
+// Standard GGML file type IDs → human labels
+const GGML_FILE_TYPES = {
+  0: 'F32', 1: 'F16', 2: 'Q4_0', 3: 'Q4_1', 7: 'Q8_0',
+  8: 'Q5_0', 9: 'Q5_1', 10: 'Q2_K', 11: 'Q3_K_S', 12: 'Q3_K_M',
+  13: 'Q3_K_L', 14: 'Q4_K_S', 15: 'Q4_K_M', 16: 'Q5_K_S', 17: 'Q5_K_M',
+  18: 'Q6_K', 19: 'IQ2_XXS', 20: 'IQ2_XS', 21: 'IQ3_XXS',
+  22: 'IQ1_S', 23: 'IQ4_NL', 24: 'IQ3_S', 25: 'IQ2_S', 26: 'IQ4_XS',
+  27: 'IQ1_M', 28: 'BF16',
+};
+
+const QUANT_COLORS = {
+  'F32': '#e06c75', 'F16': '#e5c07b', 'BF16': '#d19a66',
+  'Q8_0': '#98c379', 'Q8_1': '#7ec87e', 'Q8_K': '#56b6c2',
+  'Q6_K': '#61afef', 'Q5_K': '#5199d4', 'Q5_1': '#4a90d9', 'Q5_0': '#4585cc',
+  'Q4_K': '#c678dd', 'Q4_1': '#b06ccc', 'Q4_0': '#a55fbf',
+  'Q3_K': '#d19a66', 'Q2_K': '#e86767',
+  'IQ4_XS': '#c678dd', 'IQ4_NL': '#b86cd5', 'IQ3_S': '#d4a157',
+  'IQ3_XXS': '#cc9544', 'IQ2_XS': '#e07070', 'IQ2_XXS': '#d96060',
+  'IQ2_S': '#d55858', 'IQ1_S': '#cc4c4c', 'IQ1_M': '#c04040',
+};
+
+function renderQuantProfile(model) {
+  if (!model.quantProfile?.length) return '';
+  const fileTypeLabel = model.fileType != null ? (GGML_FILE_TYPES[model.fileType] || `type ${model.fileType}`) : null;
+  const bars = model.quantProfile.map(q => {
+    const pct = (q.pct * 100).toFixed(1);
+    const color = QUANT_COLORS[q.type] || '#888';
+    return `<div class="quant-bar-seg" style="flex:${Math.max(q.pct, 0.01)};background:${color}" title="${q.type}: ${pct}% (${q.count} tensors, ${formatBytes(q.bytes)})"></div>`;
+  }).join('');
+  const legend = model.quantProfile.map(q => {
+    const pct = (q.pct * 100).toFixed(1);
+    const color = QUANT_COLORS[q.type] || '#888';
+    return `<span class="quant-legend-item"><span class="quant-legend-dot" style="background:${color}"></span>${q.type} <span class="quant-legend-pct">${pct}%</span></span>`;
+  }).join('');
+  return `<div class="quant-profile">
+    <div class="quant-profile-header">Quantization${fileTypeLabel ? ` · <strong>${fileTypeLabel}</strong>` : ''}</div>
+    <div class="quant-bar">${bars}</div>
+    <div class="quant-legend">${legend}</div>
+  </div>`;
+}
+
 function renderSummary(model) {
   const summary = document.createElement('div');
   summary.className = 'model-summary';
@@ -48,6 +89,7 @@ function renderSummary(model) {
       <div class="summary-item"><span class="label">Version</span><span class="value">v${model.version}</span></div>
     </div>
     ${renderAttentionGeometry(model)}
+    ${renderQuantProfile(model)}
   `;
   return summary;
 }
