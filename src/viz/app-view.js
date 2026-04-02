@@ -22,13 +22,21 @@ function formatBytes(value) {
 function renderAttentionGeometry(model) {
   if (!model.headCount) return '';
   const gqaLabel = model.gqaRatio > 1 ? ` (${model.gqaRatio}:1 GQA)` : ' (MHA)';
-  return `<div class="attn-geometry">
-    <span class="attn-geo-item"><strong>${model.headCount}</strong> Q heads</span>
-    <span class="attn-geo-sep">×</span>
-    <span class="attn-geo-item"><strong>${model.headDim || '?'}</strong> dim</span>
-    <span class="attn-geo-sep">|</span>
-    <span class="attn-geo-item"><strong>${model.headCountKV || model.headCount}</strong> KV heads${gqaLabel}</span>
-  </div>`;
+  const items = [
+    `<span class="attn-geo-item"><strong>${model.headCount}</strong> Q heads</span>`,
+    `<span class="attn-geo-sep">×</span>`,
+    `<span class="attn-geo-item"><strong>${model.headDim || '?'}</strong> dim</span>`,
+    `<span class="attn-geo-sep">|</span>`,
+    `<span class="attn-geo-item"><strong>${model.headCountKV || model.headCount}</strong> KV heads${gqaLabel}</span>`,
+  ];
+  // Attention variants from metadata
+  const slidingWindow = getMeta(model, 'attention.sliding_window');
+  if (slidingWindow != null) items.push(`<span class="attn-geo-sep">|</span><span class="attn-geo-item">Sliding window: <strong>${Number(slidingWindow).toLocaleString()}</strong></span>`);
+  const crossAttn = getMeta(model, 'attention.cross_attention');
+  if (crossAttn) items.push(`<span class="attn-geo-sep">|</span><span class="attn-geo-item">Cross-attention: <strong>✓</strong></span>`);
+  const layerNorm = getMeta(model, 'attention.layer_norm_epsilon', 'attention.layer_norm_rms_epsilon');
+  if (layerNorm != null) items.push(`<span class="attn-geo-sep">|</span><span class="attn-geo-item">ε = <strong>${layerNorm}</strong></span>`);
+  return `<div class="attn-geometry">${items.join('')}</div>`;
 }
 
 function getMeta(model, ...keys) {
