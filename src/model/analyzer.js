@@ -109,6 +109,24 @@ export function analyzeModel(gguf) {
   const headDim = headCount > 0 ? Math.round(embeddingLength / headCount) : 0;
   const gqaRatio = headCountKV > 0 ? Math.round(headCount / headCountKV) : 1;
 
+  // Detect activation function from architecture
+  const ARCH_ACTIVATION = {
+    llama: 'SiLU', mistral: 'SiLU', qwen2: 'SiLU', qwen2moe: 'SiLU',
+    gemma: 'GELU', gemma2: 'GELU', phi3: 'SiLU', phi: 'GELU',
+    internlm2: 'SiLU', yi: 'SiLU', deepseek: 'SiLU', deepseek2: 'SiLU',
+    gpt2: 'GELU', gpt_neox: 'GELU', opt: 'ReLU', falcon: 'GELU',
+    bloom: 'GELU', mpt: 'GELU', stablelm: 'SiLU', starcoder: 'GELU',
+    starcoder2: 'GELU', command_r: 'SiLU', cohere: 'SiLU', olmo: 'SiLU',
+    arctic: 'SiLU', dbrx: 'SiLU', jais: 'SwiGLU', mixtral: 'SiLU',
+  };
+  const baseActivation = ARCH_ACTIVATION[arch] || 'SiLU';
+  const hasGate = tensors.some(t =>
+    t.component === 'ffn_gate' || t.component === 'ffn_gate_exp' || t.component === 'ffn_gate_exps'
+  );
+  // If gated, derive the GLU variant name; otherwise use the base activation
+  const GATED_NAME = { SiLU: 'SwiGLU', GELU: 'GeGLU', ReLU: 'ReGLU' };
+  const activationFunction = hasGate ? (GATED_NAME[baseActivation] || `${baseActivation} (gated)`) : baseActivation;
+
   // Group tensors
   const baseLayers = [];  // non-block tensors (embed, output, etc.)
   const blocks = new Map(); // block index -> tensors
@@ -180,7 +198,7 @@ export function analyzeModel(gguf) {
 
   return {
     arch, modelName, blockCount, embeddingLength, headCount, headCountKV, headDim, gqaRatio,
-    contextLength, vocabSize,
+    contextLength, vocabSize, activationFunction,
     totalParams, totalMemory, layers, version: gguf.version,
     ggufSource: gguf.source || null,
     ggufInfo: {

@@ -50,7 +50,13 @@ function makeTensorGroupDetail(label, component, tensors) {
   };
 }
 
-function getBlockProfile(layer) {
+function baseActivationName(gluName) {
+  if (!gluName) return 'Gate';
+  const base = gluName.replace(/GLU$/, '').replace(/^Swi$/, 'SiLU').replace(/^Ge$/, 'GELU').replace(/^Re$/, 'ReLU');
+  return base || gluName;
+}
+
+function getBlockProfile(layer, activationFunction) {
   const categories = new Set(layer.tensors.map(tensor => tensor.category));
   const hasAttention = categories.has('attention');
   const hasMLP = categories.has('mlp');
@@ -88,6 +94,7 @@ function getBlockProfile(layer) {
       gate,
       down,
       gated: !!gate,
+      activationFunction: activationFunction || null,
     };
   }
 
@@ -107,6 +114,7 @@ function getBlockProfile(layer) {
       expertDown,
       experts: makeTensorGroupDetail('MoE Experts', 'moe_experts', [expertUp, expertGate, expertDown]),
       gated: !!expertGate,
+      activationFunction: activationFunction || null,
     };
   }
 
@@ -171,7 +179,7 @@ function getBlockProfile(layer) {
         { label: 'FFN Norm', type: 'norm', detail: moeDetail?.norm || null },
         { label: 'Router', type: 'moe', kind: 'moe-router', detail: moeDetail?.router || null },
         { label: 'Up', type: 'moe', kind: 'moe-up', detail: moeDetail?.expertUp || null },
-        { label: 'Gate', type: 'moe', kind: 'moe-gate', detail: moeDetail?.expertGate || null },
+        { label: baseActivationName(activationFunction), type: 'moe', kind: 'moe-gate', detail: moeDetail?.expertGate || null },
         { label: 'Down', type: 'moe', kind: 'moe-down', detail: moeDetail?.expertDown || null },
       ].filter((node) => node.type === 'norm' || !!node.detail),
     });
@@ -240,7 +248,7 @@ export function buildResidualFlowGraph(model) {
   };
 
   for (const block of blocks) {
-    const profile = getBlockProfile(block);
+    const profile = getBlockProfile(block, model.activationFunction);
     stages.push(makeStage({
       id: `block-${block.index}`,
       label: block.label,

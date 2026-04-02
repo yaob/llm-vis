@@ -97,6 +97,11 @@
         .head-heatmap-wrap { background: #151922; border: 1px solid #313b4d; border-radius: 8px; padding: 8px; overflow: auto; }
         .head-heatmap-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
         .head-heatmap-caption { margin-top: 8px; color: #8f9bb0; font-size: 0.74rem; line-height: 1.4; }
+        .head-heatmap-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 0; }
+        .heatmap-page-btn { background: #2a3445; border: 1px solid #48576e; color: #c6cfdd; border-radius: 6px; padding: 5px 12px; font-size: 0.78rem; cursor: pointer; transition: background 0.15s; }
+        .heatmap-page-btn:hover:not(:disabled) { background: #3a4a60; }
+        .heatmap-page-btn:disabled { opacity: 0.35; cursor: default; }
+        .heatmap-page-info { color: #9aa4b8; font-size: 0.76rem; white-space: nowrap; }
 
         /* Attention head connection diagram */
         .head-connection-section { margin: 12px 0 10px; padding: 12px; border-radius: 10px; background: #202733; border: 1px solid #313b4d; }
@@ -282,6 +287,7 @@
             activeView: 'architecture',
             selectedLayerIndex: null,
             selectedHead: null,
+            rowPage: 0,
             viewTransforms: { architecture: null },
         };
 
@@ -292,6 +298,7 @@
                 activeView: appState.activeView,
                 selectedLayerIndex: appState.selectedLayerIndex,
                 selectedHead: appState.selectedHead,
+                rowPage: appState.rowPage,
                 transform: appState.viewTransforms.architecture,
                 onInvalidate: () => renderCurrentModel(true),
                 onViewChange: (viewId) => {
@@ -301,6 +308,7 @@
                 onSelectLayer: (layerIndex) => {
                     appState.selectedLayerIndex = appState.selectedLayerIndex === layerIndex ? null : layerIndex;
                     appState.selectedHead = null;
+                    appState.rowPage = 0;
                     renderCurrentModel(true);
                 },
                 onSelectHead: (headSelection) => {
@@ -308,6 +316,11 @@
                         && appState.selectedHead.kind === headSelection?.kind
                         && appState.selectedHead.index === headSelection?.index;
                     appState.selectedHead = sameSelection ? null : headSelection;
+                    appState.rowPage = 0;
+                    renderCurrentModel(true);
+                },
+                onRowPageChange: (page) => {
+                    appState.rowPage = page;
                     renderCurrentModel(true);
                 },
                 onTransformChange: (transform) => {
@@ -323,6 +336,7 @@
             appState.model = model;
             appState.selectedLayerIndex = null;
             appState.selectedHead = null;
+            appState.rowPage = 0;
             appState.viewTransforms.architecture = null;
             renderCurrentModel();
         }

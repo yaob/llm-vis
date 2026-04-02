@@ -16,9 +16,15 @@ const COLORS = {
   selected: '#71b7ff',
 };
 
-const MOE_SUBDIAGRAM_ROW_OFFSET = -48;
+const MOE_SUBDIAGRAM_ROW_OFFSET = -110;
 
 const headDecodeCache = new WeakMap();
+
+function baseActName(gluName) {
+  if (!gluName) return 'Gate';
+  const base = gluName.replace(/GLU$/, '').replace(/^Swi$/, 'SiLU').replace(/^Ge$/, 'GELU').replace(/^Re$/, 'ReLU');
+  return base || gluName;
+}
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -167,11 +173,11 @@ const MLP_SELECTIONS = {
   },
   'mlp-gate': {
     key: 'gate',
-    title: 'FFN Gate',
-    shortLabel: 'Gate',
+    title: 'FFN Activation Gate',
+    shortLabel: null, // replaced dynamically by activation function name
     tensorLabel: 'ffn_gate',
-    badge: 'Gate projection',
-    note: 'Produces gate values that modulate the Up branch before the FFN contracts back down.',
+    badge: 'Activation gate',
+    note: 'Applies the activation function and produces gate values that modulate the Up branch before the FFN contracts back down.',
   },
   'mlp-down': {
     key: 'down',
@@ -206,11 +212,11 @@ const MOE_SELECTIONS = {
   },
   'moe-gate': {
     key: 'expertGate',
-    title: 'MoE Expert Gate',
-    shortLabel: 'Gate',
+    title: 'MoE Expert Activation Gate',
+    shortLabel: null, // replaced dynamically by activation function name
     tensorLabel: 'ffn_gate_exp',
-    badge: 'Expert gating',
-    note: 'Packed per-expert gating weights used by gated MoE feed-forward variants before expert contraction.',
+    badge: 'Expert activation gate',
+    note: 'Packed per-expert activation gating weights used by gated MoE feed-forward variants before expert contraction.',
   },
   'moe-down': {
     key: 'expertDown',
@@ -225,7 +231,7 @@ const MOE_SELECTIONS = {
     title: 'MoE Experts',
     shortLabel: 'Experts',
     badge: 'Packed expert bank',
-    note: 'Packed MoE expert tensors holding the per-expert Up / Gate / Down projections that run after routing.',
+    note: 'Packed MoE expert tensors holding the per-expert Up, activation, and Down projections that run after routing.',
   },
 };
 
@@ -309,7 +315,7 @@ function getSSMSelectionTensorLabel(stage, selection, tensor) {
 function getMoEExpertEntries(moeDetail) {
   return [
     ['Expert Up', 'ffn_up_exp', moeDetail?.expertUp],
-    ['Expert Gate', 'ffn_gate_exp', moeDetail?.expertGate],
+    [`Expert ${baseActName(moeDetail?.activationFunction)}`, 'ffn_gate_exp', moeDetail?.expertGate],
     ['Expert Down', 'ffn_down_exp', moeDetail?.expertDown],
   ].filter(([, , tensor]) => tensor);
 }
@@ -384,33 +390,38 @@ function createHeadCellButton(kind, index, label, selected, related, title, onSe
   return cell;
 }
 
-function getSelectedHeadDetail(stage, selectedHead) {
+function getSelectedHeadDetail(stage, selectedHead, rowPage = 0) {
   if (!selectedHead) return null;
   const mlpSelection = getMLPSelectionConfig(selectedHead.kind);
   if (mlpSelection) {
     const tensor = stage?.mlpDetail?.[mlpSelection.key];
     if (!tensor) return null;
     const totalRows = getTensorRowCount(tensor);
-    const previewRows = Math.min(totalRows || 0, 96);
-    const previewEnd = Math.max(0, previewRows - 1);
+    const pageSize = 96;
+    const maxPage = Math.max(0, Math.ceil((totalRows || 0) / pageSize) - 1);
+    const page = clamp(rowPage, 0, maxPage);
+    const rowStart = page * pageSize;
+    const previewRows = Math.min((totalRows || 0) - rowStart, pageSize);
+    const previewEnd = rowStart + Math.max(0, previewRows - 1);
     return {
       title: mlpSelection.title,
       badge: mlpSelection.badge,
-      note: previewRows && totalRows > previewRows
-        ? `Showing rows 0–${previewEnd} of ${mlpSelection.tensorLabel} as a bounded preview so large FFN matrices stay responsive.`
+      note: previewRows && totalRows > pageSize
+        ? `Showing rows ${rowStart}–${previewEnd} of ${totalRows} in ${mlpSelection.tensorLabel}. Use ◀ ▶ to page through rows.`
         : mlpSelection.note,
       fields: [
-        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in ${mlpSelection.tensorLabel}` : mlpSelection.tensorLabel },
+        { label: 'Tensor slice', value: previewRows ? `Rows ${rowStart}–${previewEnd} in ${mlpSelection.tensorLabel}` : mlpSelection.tensorLabel },
         { label: 'Tensor shape', value: formatDimsLabel(tensor.shape) },
         { label: 'Parameters', value: formatMaybeParams(tensor.params) },
         { label: 'Memory', value: formatMaybeBytes(tensor.memoryBytes) },
         { label: 'Quantization', value: tensor.typeName || '—' },
-        { label: 'FFN style', value: stage?.mlpDetail?.gated ? 'Gated FFN' : 'Plain FFN' },
+        { label: 'FFN style', value: stage?.mlpDetail?.gated ? `Gated FFN (${stage.mlpDetail.activationFunction || 'gated'})` : 'Plain FFN' },
       ],
+      pagination: totalRows > pageSize ? { page, maxPage, pageSize, totalRows } : null,
       decodePlan: previewRows
         ? {
-          cacheKey: `${stage.index}:${selectedHead.kind}`,
-          slices: [{ label: mlpSelection.title, tensorLabel: mlpSelection.tensorLabel, tensor, rowStart: 0, rowCount: previewRows }],
+          cacheKey: `${stage.index}:${selectedHead.kind}:p${page}`,
+          slices: [{ label: mlpSelection.title, tensorLabel: mlpSelection.tensorLabel, tensor, rowStart, rowCount: previewRows }],
         }
         : null,
     };
@@ -421,11 +432,17 @@ function getSelectedHeadDetail(stage, selectedHead) {
     if (moeSelection.key === 'experts') {
       const expertEntries = getMoEExpertEntries(stage?.moeDetail);
       if (!expertEntries.length) return null;
-      const previewLimit = 48;
+      const pageSize = 48;
+      // For experts, pagination applies to each sub-tensor equally
+      const maxExpertRows = Math.max(...expertEntries.map(([,, t]) => getTensorRowCount(t) || 0));
+      const maxPage = Math.max(0, Math.ceil(maxExpertRows / pageSize) - 1);
+      const page = clamp(rowPage, 0, maxPage);
+      const rowStart = page * pageSize;
       const slices = expertEntries
         .map(([label, tensorLabel, tensor]) => {
-          const rowCount = Math.min(getTensorRowCount(tensor) || 0, previewLimit);
-          return rowCount ? { label, tensorLabel, tensor, rowStart: 0, rowCount } : null;
+          const totalR = getTensorRowCount(tensor) || 0;
+          const rowCount = Math.min(totalR - rowStart, pageSize);
+          return rowCount > 0 ? { label, tensorLabel, tensor, rowStart, rowCount } : null;
         })
         .filter(Boolean);
       const expertPack = expertEntries.map(([, tensorLabel]) => tensorLabel).join(' • ');
@@ -435,7 +452,9 @@ function getSelectedHeadDetail(stage, selectedHead) {
         title: moeSelection.title,
         badge: moeSelection.badge,
         note: slices.length
-          ? `Showing up to the first ${previewLimit} rows from each packed expert tensor so large MoE banks stay responsive.`
+          ? (maxExpertRows > pageSize
+            ? `Showing rows ${rowStart}–${rowStart + Math.min(pageSize, maxExpertRows - rowStart) - 1} of ${maxExpertRows} per expert tensor. Use ◀ ▶ to page.`
+            : `Showing up to the first ${pageSize} rows from each packed expert tensor so large MoE banks stay responsive.`)
           : moeSelection.note,
         fields: [
           { label: 'Tensor pack', value: expertPack || '—' },
@@ -443,11 +462,12 @@ function getSelectedHeadDetail(stage, selectedHead) {
           { label: 'Parameters', value: formatMaybeParams(stage?.moeDetail?.experts?.params) },
           { label: 'Memory', value: formatMaybeBytes(stage?.moeDetail?.experts?.memoryBytes) },
           { label: 'Quantization', value: stage?.moeDetail?.experts?.typeName || '—' },
-          { label: 'Expert layout', value: `${stage?.moeDetail?.gated ? 'Up / Gate / Down' : 'Up / Down'}${expertCount ? ` • ${expertCount} packed experts` : ''}` },
+          { label: 'Expert layout', value: `${stage?.moeDetail?.gated ? `Up / ${baseActName(stage.moeDetail.activationFunction)} / Down` : 'Up / Down'}${expertCount ? ` • ${expertCount} packed experts` : ''}` },
         ],
+        pagination: maxExpertRows > pageSize ? { page, maxPage, pageSize, totalRows: maxExpertRows } : null,
         decodePlan: slices.length
           ? {
-            cacheKey: `${stage.index}:${selectedHead.kind}`,
+            cacheKey: `${stage.index}:${selectedHead.kind}:p${page}`,
             slices,
           }
           : null,
@@ -457,8 +477,12 @@ function getSelectedHeadDetail(stage, selectedHead) {
     const tensor = stage?.moeDetail?.[moeSelection.key];
     if (!tensor) return null;
     const totalRows = getTensorRowCount(tensor);
-    const previewRows = Math.min(totalRows || 0, moeSelection.key === 'router' ? 96 : 48);
-    const previewEnd = Math.max(0, previewRows - 1);
+    const pageSize = moeSelection.key === 'router' ? 96 : 48;
+    const maxPage = Math.max(0, Math.ceil((totalRows || 0) / pageSize) - 1);
+    const page = clamp(rowPage, 0, maxPage);
+    const rowStart = page * pageSize;
+    const previewRows = Math.min((totalRows || 0) - rowStart, pageSize);
+    const previewEnd = rowStart + Math.max(0, previewRows - 1);
     const expertCount = getMoEExpertCount(stage?.moeDetail);
     const roleLabel = moeSelection.key === 'router' ? 'Routing role' : 'Expert role';
     const roleValue = moeSelection.key === 'router'
@@ -467,21 +491,22 @@ function getSelectedHeadDetail(stage, selectedHead) {
     return {
       title: moeSelection.title,
       badge: moeSelection.badge,
-      note: previewRows && totalRows > previewRows
-        ? `Showing rows 0–${previewEnd} of ${moeSelection.tensorLabel} as a bounded preview so large ${moeSelection.key === 'router' ? 'routing' : 'expert'} matrices stay responsive.`
+      note: previewRows && totalRows > pageSize
+        ? `Showing rows ${rowStart}–${previewEnd} of ${totalRows} in ${moeSelection.tensorLabel}. Use ◀ ▶ to page through rows.`
         : moeSelection.note,
       fields: [
-        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in ${moeSelection.tensorLabel}` : moeSelection.tensorLabel },
+        { label: 'Tensor slice', value: previewRows ? `Rows ${rowStart}–${previewEnd} in ${moeSelection.tensorLabel}` : moeSelection.tensorLabel },
         { label: 'Tensor shape', value: formatDimsLabel(tensor.shape) },
         { label: 'Parameters', value: formatMaybeParams(tensor.params) },
         { label: 'Memory', value: formatMaybeBytes(tensor.memoryBytes) },
         { label: 'Quantization', value: tensor.typeName || '—' },
         { label: roleLabel, value: roleValue },
       ],
+      pagination: totalRows > pageSize ? { page, maxPage, pageSize, totalRows } : null,
       decodePlan: previewRows
         ? {
-          cacheKey: `${stage.index}:${selectedHead.kind}`,
-          slices: [{ label: moeSelection.title, tensorLabel: moeSelection.tensorLabel, tensor, rowStart: 0, rowCount: previewRows }],
+          cacheKey: `${stage.index}:${selectedHead.kind}:p${page}`,
+          slices: [{ label: moeSelection.title, tensorLabel: moeSelection.tensorLabel, tensor, rowStart, rowCount: previewRows }],
         }
         : null,
     };
@@ -492,28 +517,33 @@ function getSelectedHeadDetail(stage, selectedHead) {
     const tensor = stage?.ssmDetail?.[ssmSelection.key];
     if (!tensor) return null;
     const totalRows = getTensorRowCount(tensor);
-    const previewRows = Math.min(totalRows || 0, 96);
-    const previewEnd = Math.max(0, previewRows - 1);
+    const pageSize = 96;
+    const maxPage = Math.max(0, Math.ceil((totalRows || 0) / pageSize) - 1);
+    const page = clamp(rowPage, 0, maxPage);
+    const rowStart = page * pageSize;
+    const previewRows = Math.min((totalRows || 0) - rowStart, pageSize);
+    const previewEnd = rowStart + Math.max(0, previewRows - 1);
     const title = getSSMSelectionTitle(stage, ssmSelection, tensor);
     const tensorLabel = getSSMSelectionTensorLabel(stage, ssmSelection, tensor);
     return {
       title,
       badge: ssmSelection.badge,
-      note: previewRows && totalRows > previewRows
-        ? `Showing rows 0–${previewEnd} of ${tensorLabel} as a bounded preview so large SSM tensors stay responsive.`
+      note: previewRows && totalRows > pageSize
+        ? `Showing rows ${rowStart}–${previewEnd} of ${totalRows} in ${tensorLabel}. Use ◀ ▶ to page through rows.`
         : ssmSelection.note,
       fields: [
-        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in ${tensorLabel}` : tensorLabel },
+        { label: 'Tensor slice', value: previewRows ? `Rows ${rowStart}–${previewEnd} in ${tensorLabel}` : tensorLabel },
         { label: 'Tensor shape', value: formatDimsLabel(tensor.shape) },
         { label: 'Parameters', value: formatMaybeParams(tensor.params) },
         { label: 'Memory', value: formatMaybeBytes(tensor.memoryBytes) },
         { label: 'Quantization', value: tensor.typeName || '—' },
         { label: 'SSM role', value: ssmSelection.badge },
       ],
+      pagination: totalRows > pageSize ? { page, maxPage, pageSize, totalRows } : null,
       decodePlan: previewRows
         ? {
-          cacheKey: `${stage.index}:${selectedHead.kind}`,
-          slices: [{ label: title, tensorLabel, tensor, rowStart: 0, rowCount: previewRows }],
+          cacheKey: `${stage.index}:${selectedHead.kind}:p${page}`,
+          slices: [{ label: title, tensorLabel, tensor, rowStart, rowCount: previewRows }],
         }
         : null,
     };
@@ -641,26 +671,31 @@ function getSelectedHeadDetail(stage, selectedHead) {
 
   if (selectedHead.kind === 'wo') {
     const outputRows = getTensorRowCount(ad?.output);
-    const previewRows = Math.min(outputRows || 0, 96);
-    const previewEnd = Math.max(0, previewRows - 1);
+    const pageSize = 96;
+    const maxPage = Math.max(0, Math.ceil((outputRows || 0) / pageSize) - 1);
+    const page = clamp(rowPage, 0, maxPage);
+    const rowStart = page * pageSize;
+    const previewRows = Math.min((outputRows || 0) - rowStart, pageSize);
+    const previewEnd = rowStart + Math.max(0, previewRows - 1);
     return {
       title: 'Wo',
       badge: 'Output projection',
-      note: previewRows && outputRows > previewRows
-        ? `Showing rows 0–${previewEnd} of Wo as a bounded preview so large output projections stay responsive.`
+      note: previewRows && outputRows > pageSize
+        ? `Showing rows ${rowStart}–${previewEnd} of ${outputRows} in Wo. Use ◀ ▶ to page through rows.`
         : 'Attention output projection applied after concatenating all head outputs.',
       fields: [
-        { label: 'Tensor slice', value: previewRows ? `Rows 0–${previewEnd} in attn_output` : 'attn_output' },
+        { label: 'Tensor slice', value: previewRows ? `Rows ${rowStart}–${previewEnd} in attn_output` : 'attn_output' },
         { label: 'Tensor shape', value: ad?.output?.shape?.length ? `[${ad.output.shape.join(' × ')}]` : '—' },
         { label: 'Parameters', value: formatMaybeParams(ad?.output?.params) },
         { label: 'Memory', value: formatMaybeBytes(ad?.output?.memoryBytes) },
         { label: 'Quantization', value: ad?.output?.typeName || '—' },
         { label: 'Heatmap preview', value: previewRows ? `${previewRows} of ${outputRows} rows` : 'Unavailable' },
       ],
+      pagination: outputRows > pageSize ? { page, maxPage, pageSize, totalRows: outputRows } : null,
       decodePlan: previewRows
         ? {
-          cacheKey: `${stage.index}:wo`,
-          slices: [{ label: 'Wo projection', tensorLabel: 'attn_output', tensor: ad.output, rowStart: 0, rowCount: previewRows }],
+          cacheKey: `${stage.index}:wo:p${page}`,
+          slices: [{ label: 'Wo projection', tensorLabel: 'attn_output', tensor: ad.output, rowStart, rowCount: previewRows }],
         }
         : null,
     };
@@ -731,7 +766,7 @@ function createHeatmapCanvas(values, width, height, absMax) {
   return canvas;
 }
 
-function renderSelectedHeadDecode(host, model, selectedHeadDetail, onInvalidate) {
+function renderSelectedHeadDecode(host, model, selectedHeadDetail, onInvalidate, onRowPageChange) {
   host.innerHTML = '';
   if (!selectedHeadDetail?.decodePlan?.slices?.length) {
     host.appendChild(createInfoBlock('head-decode-status unavailable', 'Heatmap unavailable', 'This head selection does not expose a decodable GGUF tensor slice.'));
@@ -755,6 +790,50 @@ function renderSelectedHeadDecode(host, model, selectedHeadDetail, onInvalidate)
   intro.className = 'head-decode-meta';
   intro.textContent = `Best-effort dequantized values from ${state.sourceName || 'uploaded GGUF'}. Positive weights are red, negative weights are blue.`;
   host.appendChild(intro);
+
+  // Pagination controls
+  const pag = selectedHeadDetail.pagination;
+  if (pag && onRowPageChange) {
+    const pagBar = document.createElement('div');
+    pagBar.className = 'head-heatmap-pagination';
+
+    const firstBtn = document.createElement('button');
+    firstBtn.type = 'button';
+    firstBtn.className = 'heatmap-page-btn';
+    firstBtn.textContent = '⏮ First';
+    firstBtn.disabled = pag.page <= 0;
+    firstBtn.addEventListener('click', () => onRowPageChange(0));
+
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'heatmap-page-btn';
+    prevBtn.textContent = '◀ Prev';
+    prevBtn.disabled = pag.page <= 0;
+    prevBtn.addEventListener('click', () => onRowPageChange(pag.page - 1));
+
+    const pageInfo = document.createElement('span');
+    pageInfo.className = 'heatmap-page-info';
+    const rowStart = pag.page * pag.pageSize;
+    const rowEnd = Math.min(rowStart + pag.pageSize, pag.totalRows) - 1;
+    pageInfo.textContent = `Rows ${rowStart}–${rowEnd} of ${pag.totalRows}  (page ${pag.page + 1}/${pag.maxPage + 1})`;
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'heatmap-page-btn';
+    nextBtn.textContent = 'Next ▶';
+    nextBtn.disabled = pag.page >= pag.maxPage;
+    nextBtn.addEventListener('click', () => onRowPageChange(pag.page + 1));
+
+    const lastBtn = document.createElement('button');
+    lastBtn.type = 'button';
+    lastBtn.className = 'heatmap-page-btn';
+    lastBtn.textContent = 'Last ⏭';
+    lastBtn.disabled = pag.page >= pag.maxPage;
+    lastBtn.addEventListener('click', () => onRowPageChange(pag.maxPage));
+
+    pagBar.append(firstBtn, prevBtn, pageInfo, nextBtn, lastBtn);
+    host.appendChild(pagBar);
+  }
 
   if (state.warnings?.length) {
     const warningList = document.createElement('div');
@@ -948,7 +1027,7 @@ function renderHTMLMLPGrid(container, mlpDetail, selectedHead, onSelectHead) {
   section.className = 'head-grid-section';
 
   const title = document.createElement('h5');
-  title.textContent = `MLP Components${mlpDetail?.gated ? ' · gated FFN' : ''}`;
+  title.textContent = `MLP Components${mlpDetail?.gated ? ` · ${mlpDetail.activationFunction || 'gated FFN'}` : ''}`;
   section.appendChild(title);
 
   const label = document.createElement('div');
@@ -958,12 +1037,14 @@ function renderHTMLMLPGrid(container, mlpDetail, selectedHead, onSelectHead) {
 
   const grid = document.createElement('div');
   grid.className = 'head-grid';
+  const mlpActLabel = baseActName(mlpDetail?.activationFunction);
   buttons.forEach(([kind, tensor]) => {
     const config = getMLPSelectionConfig(kind);
+    const label = kind === 'mlp-gate' ? mlpActLabel : (config?.shortLabel || tensor?.label || kind);
     grid.appendChild(createHeadCellButton(
       kind,
       undefined,
-      config?.shortLabel || tensor?.label || kind,
+      label,
       selectedHead?.kind === kind,
       false,
       `${config?.title || tensor?.label || kind} ${formatDimsLabel(tensor?.shape)}`,
@@ -974,7 +1055,7 @@ function renderHTMLMLPGrid(container, mlpDetail, selectedHead, onSelectHead) {
 
   const hint = document.createElement('div');
   hint.className = 'head-grid-hint';
-  hint.textContent = 'Use these selectors—or click the Up / Gate / Down boxes in the SVG wiring—to inspect tensor metadata and weight heatmaps.';
+  hint.textContent = `Use these selectors—or click the Up / ${mlpActLabel} / Down boxes in the SVG wiring—to inspect tensor metadata and weight heatmaps.`;
   section.appendChild(hint);
 
   container.appendChild(section);
@@ -1004,15 +1085,17 @@ function renderHTMLMoEGrid(container, moeDetail, selectedHead, onSelectHead) {
 
   const grid = document.createElement('div');
   grid.className = 'head-grid';
+  const moeActLabel = baseActName(moeDetail?.activationFunction);
   buttons.forEach(([kind, tensor]) => {
     const config = getMoESelectionConfig(kind);
     const tooltip = kind === 'moe-experts'
       ? `${config?.title || tensor?.label || kind}${expertCount ? ` • ${expertCount} packed experts` : ''}`
       : `${config?.title || tensor?.label || kind} ${formatDimsLabel(tensor?.shape)}${kind === 'moe-router' || !expertCount ? '' : ` • ${expertCount} packed experts`}`;
+    const label = kind === 'moe-gate' ? moeActLabel : (config?.shortLabel || tensor?.label || kind);
     grid.appendChild(createHeadCellButton(
       kind,
       undefined,
-      config?.shortLabel || tensor?.label || kind,
+      label,
       selectedHead?.kind === kind,
       false,
       tooltip,
@@ -1023,7 +1106,7 @@ function renderHTMLMoEGrid(container, moeDetail, selectedHead, onSelectHead) {
 
   const hint = document.createElement('div');
   hint.className = 'head-grid-hint';
-  hint.textContent = 'Use these selectors—or click the Router / Up / Gate / Down regions in the SVG wiring—to inspect tensor metadata and MoE weight heatmaps.';
+  hint.textContent = `Use these selectors—or click the Router / Up / ${moeActLabel} / Down regions in the SVG wiring—to inspect tensor metadata and MoE weight heatmaps.`;
   section.appendChild(hint);
 
   container.appendChild(section);
@@ -1078,7 +1161,7 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
   const hasSSMSelection = !!(stage.ssmDetail?.norm || stage.ssmDetail?.input || stage.ssmDetail?.conv1d || stage.ssmDetail?.selective || stage.ssmDetail?.a || stage.ssmDetail?.dt || stage.ssmDetail?.d || stage.ssmDetail?.output);
   const hasSelectorGrid = !!(hi?.headCount || hasMLPSelection || hasMoESelection);
   const hasSelectableDetail = !!(hi?.headCount || hasMLPSelection || hasMoESelection || hasSSMSelection);
-  const selectedHeadDetail = hasSelectableDetail ? getSelectedHeadDetail(stage, selectedHead) : null;
+  const selectedHeadDetail = hasSelectableDetail ? getSelectedHeadDetail(stage, selectedHead, uiState.rowPage || 0) : null;
   let selectedHeadHTML = '';
   if (hasSelectableDetail) {
     headSelectorHTML = hasSelectorGrid ? '<div data-head-grid></div>' : '';
@@ -1149,7 +1232,7 @@ function renderInspector(container, stage, model, selectedHead = null, uiState =
 
   const decodeHost = container.querySelector('[data-head-decode]');
   if (decodeHost && selectedHeadDetail) {
-    renderSelectedHeadDecode(decodeHost, model, selectedHeadDetail, uiState.onInvalidate || null);
+    renderSelectedHeadDecode(decodeHost, model, selectedHeadDetail, uiState.onInvalidate || null, uiState.onRowPageChange || null);
   }
 }
 
@@ -1373,17 +1456,17 @@ function getDetailPanelMetrics(stage) {
   const hasTripleDetail = hasAttnDetail && hasSSMDetail && hasMLPDetail;
   const hasSequentialAttnMoE = hasAttnDetail && hasMoEDetail && !hasTripleDetail && !hasSSMDetail && !hasMLPDetail;
   const hasSequentialSSMMLP = hasSSMDetail && hasMLPDetail;
-  let diagramYOffset = 68;
+  let diagramYOffset = 88;
   if (hasMoEDetail) {
     const moeRowYOffset = hasSequentialAttnMoE ? MOE_SUBDIAGRAM_ROW_OFFSET : -48;
     const moeFootprint = getMoEVerticalFootprint(stage.moeDetail, moeRowYOffset, hasSequentialAttnMoE);
     const laneSpread = (moeFootprint.expertCount - 1) * moeFootprint.laneGap;
-    const bottomOverlap = laneSpread / 2 + moeFootprint.laneNodeHeight / 2 + Math.abs(moeRowYOffset) + 16;
+    const bottomOverlap = laneSpread / 2 + moeFootprint.laneNodeHeight / 2 + Math.abs(moeRowYOffset) + 32;
     if (bottomOverlap > diagramYOffset) diagramYOffset = bottomOverlap;
   }
   const panelWidth = hasTripleDetail ? 1280 : (hasAttnDetail && hasMoEDetail) ? 1280 : hasAttnDetail ? 1120 : hasSequentialSSMMLP ? 1080 : hasSSMDetail ? 820 : 450;
   let basePanelHeight = hasTripleDetail ? 340 : hasAttnDetail ? 260 : hasSSMDetail ? 280 : 240;
-  let headDiagramTopGap = hasTripleDetail ? 216 : 140;
+  let headDiagramTopGap = hasTripleDetail ? 216 : 172;
   if (hasMoEDetail) {
     const moeRowYOffset = hasSequentialAttnMoE ? MOE_SUBDIAGRAM_ROW_OFFSET : -48;
     const moeFootprint = getMoEVerticalFootprint(stage.moeDetail, moeRowYOffset, hasSequentialAttnMoE);
@@ -1871,8 +1954,11 @@ function drawMLPRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHea
       strokeWidth: 1.8,
       arrow: false,
     });
+    const gateLabel = detail.activationFunction
+      ? baseActName(detail.activationFunction)
+      : 'Gate';
     drawNodeBox(group, branchX, gateY, nodeWidth, nodeHeight, {
-      label: 'Gate',
+      label: gateLabel,
       type: 'mlp',
       detail: detail.gate,
       selected: selectedHead?.kind === 'mlp-gate',
@@ -1904,6 +1990,7 @@ function drawMLPRow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHea
       'font-weight': 700,
       fill: '#ecfff0',
     }, '×'));
+
     group.appendChild(svgElement('line', {
       x1: mixX + 8.5,
       y1: rowY,
@@ -2208,7 +2295,10 @@ function drawMoERow(group, row, panelX, mainY, panelWidth, rowIndex, selectedHea
   const normNode = row.nodes.find((node) => node.type === 'norm') || { label: 'FFN Norm', type: 'norm', detail: moeDetail.norm || null };
   const routerNode = row.nodes.find((node) => node.kind === 'moe-router') || { label: 'Router', type: 'moe', kind: 'moe-router', detail: moeDetail.router || null };
   const upNode = row.nodes.find((node) => node.kind === 'moe-up') || { label: 'Up', type: 'moe', kind: 'moe-up', detail: moeDetail.expertUp || null };
-  const gateNode = row.nodes.find((node) => node.kind === 'moe-gate') || (moeDetail.expertGate ? { label: 'Gate', type: 'moe', kind: 'moe-gate', detail: moeDetail.expertGate } : null);
+  const moeGateLabel = moeDetail.activationFunction
+    ? baseActName(moeDetail.activationFunction)
+    : 'Gate';
+  const gateNode = row.nodes.find((node) => node.kind === 'moe-gate') || (moeDetail.expertGate ? { label: moeGateLabel, type: 'moe', kind: 'moe-gate', detail: moeDetail.expertGate } : null);
   const downNode = row.nodes.find((node) => node.kind === 'moe-down') || { label: 'Down', type: 'moe', kind: 'moe-down', detail: moeDetail.expertDown || null };
 
   const normX = layout.normX ?? (entryX + 92);
@@ -2700,7 +2790,7 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
     const secondMergeX = panelX + panelWidth - 76;
     drawAttentionPath(group, attentionRow.attentionDetail, panelX, mainY, panelWidth, {
       label: 'Attention sublayer',
-      rowCenterY: mainY - 48,
+      rowCenterY: mainY - 110,
       mergeX: firstMergeX,
     });
     drawMoERow(group, moeRow, panelX, mainY, panelWidth, 1, selectedHead, onSelectHead, {
