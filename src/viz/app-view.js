@@ -40,6 +40,24 @@ function getMeta(model, ...keys) {
   return null;
 }
 
+function renderTokenizerInfo(model) {
+  const md = model.metadata || {};
+  const tokModel = md['tokenizer.ggml.model'] || null;
+  const bosId = md['tokenizer.ggml.bos_token_id'] ?? null;
+  const eosId = md['tokenizer.ggml.eos_token_id'] ?? null;
+  const padId = md['tokenizer.ggml.padding_token_id'] ?? md['tokenizer.ggml.pad_token_id'] ?? null;
+  const chatTpl = md['tokenizer.chat_template'] || null;
+  if (tokModel == null && bosId == null && eosId == null) return '';
+  const items = [];
+  if (tokModel) items.push(`<span class="attn-geo-item">Tokenizer: <strong>${tokModel.toUpperCase()}</strong></span>`);
+  if (bosId != null) items.push(`<span class="attn-geo-item">BOS <strong>${bosId}</strong></span>`);
+  if (eosId != null) items.push(`<span class="attn-geo-item">EOS <strong>${eosId}</strong></span>`);
+  if (padId != null) items.push(`<span class="attn-geo-item">PAD <strong>${padId}</strong></span>`);
+  if (chatTpl) items.push(`<span class="attn-geo-item">Chat template: <strong>✓</strong></span>`);
+  if (!items.length) return '';
+  return `<div class="attn-geometry">${items.join('<span class="attn-geo-sep">·</span>')}</div>`;
+}
+
 function renderRopeInfo(model) {
   const freqBase = getMeta(model, 'rope.freq_base', 'rope_freq_base');
   const scalingType = getMeta(model, 'rope.scaling.type', 'rope_scaling_type');
@@ -117,6 +135,7 @@ function renderSummary(model) {
     </div>
     ${renderAttentionGeometry(model)}
     ${renderRopeInfo(model)}
+    ${renderTokenizerInfo(model)}
     ${renderQuantProfile(model)}
   `;
   return summary;
