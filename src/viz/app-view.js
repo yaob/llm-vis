@@ -76,6 +76,19 @@ function renderTokenizerInfo(model) {
   return `<div class="attn-geometry">${items.join('<span class="attn-geo-sep">·</span>')}</div>`;
 }
 
+function renderFfnInfo(model) {
+  if (!model.ffnHiddenDim) return '';
+  const items = [];
+  items.push(`<span class="attn-geo-item">FFN hidden: <strong>${Number(model.ffnHiddenDim).toLocaleString()}</strong></span>`);
+  if (model.ffnExpansionRatio != null) {
+    items.push(`<span class="attn-geo-item">Expansion: <strong>${model.ffnExpansionRatio.toFixed(2)}×</strong></span>`);
+  }
+  if (model.activationFunction) {
+    items.push(`<span class="attn-geo-item">Activation: <strong>${model.activationFunction}</strong></span>`);
+  }
+  return `<div class="attn-geometry">${items.join('<span class="attn-geo-sep">·</span>')}</div>`;
+}
+
 function renderRopeInfo(model) {
   const freqBase = getMeta(model, 'rope.freq_base', 'rope_freq_base');
   const scalingType = getMeta(model, 'rope.scaling.type', 'rope_scaling_type');
@@ -153,6 +166,7 @@ function renderSummary(model) {
     </div>
     ${renderProvenance(model)}
     ${renderAttentionGeometry(model)}
+    ${renderFfnInfo(model)}
     ${renderRopeInfo(model)}
     ${renderTokenizerInfo(model)}
     ${renderQuantProfile(model)}

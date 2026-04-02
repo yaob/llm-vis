@@ -212,9 +212,19 @@ export function analyzeModel(gguf) {
 
   const fileType = metadata['general.file_type'] ?? null;
 
+  // FFN hidden dimension: find from ffn_up tensor shape or metadata
+  let ffnHiddenDim = metadata[`${arch}.feed_forward_length`] ?? metadata[`${arch}.intermediate_size`] ?? null;
+  if (ffnHiddenDim == null) {
+    const upTensor = tensors.find(t => t.component === 'ffn_up' || t.component === 'ffn_up_exp');
+    if (upTensor && upTensor.dimensions && upTensor.dimensions.length >= 2) {
+      ffnHiddenDim = Number(upTensor.dimensions[0]); // first dim = hidden size
+    }
+  }
+  const ffnExpansionRatio = (ffnHiddenDim && embeddingLength) ? (ffnHiddenDim / embeddingLength) : null;
+
   return {
     arch, modelName, blockCount, embeddingLength, headCount, headCountKV, headDim, gqaRatio,
-    contextLength, vocabSize, activationFunction,
+    contextLength, vocabSize, activationFunction, ffnHiddenDim, ffnExpansionRatio,
     totalParams, totalMemory, layers, version: gguf.version,
     quantProfile, fileType,
     metadata,
