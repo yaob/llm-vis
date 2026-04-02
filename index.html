@@ -33,6 +33,19 @@
         .summary-item .label { display: block; font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
         .summary-item .value { display: block; font-size: 1rem; color: #fff; margin-top: 2px; font-weight: 600; }
 
+        /* Raw metadata browser */
+        .metadata-browser { margin-top: 14px; }
+        .metadata-toggle { background: none; border: 1px solid #3a3f4b; border-radius: 6px; color: #bbb; padding: 7px 12px; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; transition: background 0.15s; }
+        .metadata-toggle:hover { background: #262b35; color: #fff; }
+        .metadata-toggle-icon { font-size: 0.7rem; }
+        .metadata-count { margin-left: auto; color: #666; font-size: 0.72rem; }
+        .metadata-table { margin-top: 8px; max-height: 400px; overflow-y: auto; border: 1px solid #2a2f3a; border-radius: 8px; background: #1e2228; }
+        .metadata-table.hidden { display: none; }
+        .metadata-row { display: flex; gap: 12px; padding: 5px 10px; border-bottom: 1px solid #262b35; font-size: 0.74rem; }
+        .metadata-row:last-child { border-bottom: none; }
+        .metadata-key { color: #61afef; min-width: 240px; flex-shrink: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+        .metadata-val { color: #abb2bf; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
         /* Model description */
         .model-description { color: #9aa4b8; font-size: 0.82rem; line-height: 1.5; margin-top: 6px; padding: 8px 10px; background: #262b35; border-radius: 6px; border-left: 3px solid #4a90d9; }
 

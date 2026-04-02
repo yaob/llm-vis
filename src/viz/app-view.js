@@ -157,6 +157,42 @@ function renderSummary(model) {
     ${renderTokenizerInfo(model)}
     ${renderQuantProfile(model)}
   `;
+
+  // Raw metadata browser (expandable)
+  if (model.metadata && Object.keys(model.metadata).length) {
+    const browser = document.createElement('div');
+    browser.className = 'metadata-browser';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'metadata-toggle';
+    toggle.innerHTML = '<span class="metadata-toggle-icon">▸</span> Raw GGUF Metadata <span class="metadata-count">' + Object.keys(model.metadata).length + ' keys</span>';
+    const table = document.createElement('div');
+    table.className = 'metadata-table hidden';
+    const sortedKeys = Object.keys(model.metadata).sort();
+    for (const key of sortedKeys) {
+      const val = model.metadata[key];
+      let display;
+      if (Array.isArray(val)) {
+        display = val.length > 8 ? `Array[${val.length}]` : JSON.stringify(val);
+      } else if (typeof val === 'string' && val.length > 200) {
+        display = val.slice(0, 200) + '…';
+      } else {
+        display = String(val);
+      }
+      const row = document.createElement('div');
+      row.className = 'metadata-row';
+      row.innerHTML = `<span class="metadata-key">${escHtml(key)}</span><span class="metadata-val">${escHtml(display)}</span>`;
+      table.appendChild(row);
+    }
+    toggle.addEventListener('click', () => {
+      table.classList.toggle('hidden');
+      toggle.querySelector('.metadata-toggle-icon').textContent = table.classList.contains('hidden') ? '▸' : '▾';
+    });
+    browser.appendChild(toggle);
+    browser.appendChild(table);
+    summary.appendChild(browser);
+  }
+
   return summary;
 }
 
