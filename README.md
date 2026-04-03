@@ -2,6 +2,8 @@
 
 A browser-based tool for inspecting and visualizing the internal structure of Large Language Models. Drag-and-drop a GGUF file or connect to a local Ollama instance and instantly explore the model's architecture — layers, tensors, quantization, weight heatmaps, and dataflow diagrams. Everything runs client-side; no server, no uploads, no API keys.
 
+> **Try it now** — clone the repo, run `npm start`, and drop any `.gguf` file onto the page.
+
 ## Features
 
 - **GGUF file parsing** — reads the binary header, metadata, and tensor index without loading weights into memory, so it works with multi-gigabyte models
