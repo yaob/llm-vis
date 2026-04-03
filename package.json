@@ -2,9 +2,10 @@
   "name": "llm-file-visualizer",
   "version": "1.0.0",
   "description": "Browser-based visualization tool for LLM files",
+  "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "http-server . -p 8080",
+    "start": "node server.js 8080",
     "build": "webpack --mode production",
     "dev": "webpack serve --mode development"
   },

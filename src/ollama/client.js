@@ -46,7 +46,7 @@ export class OllamaClient {
   /**
    * Get detailed model info including GGUF metadata KV pairs.
    * @param {string} modelName - e.g. "llama3.2:latest"
-   * @returns {{ details, modelInfo, template, parameters, license }}
+   * @returns {{ details, modelInfo, template, parameters, license, modelfile }}
    */
   async showModel(modelName) {
     const res = await fetch(`${this.baseUrl}/api/show`, {
@@ -63,7 +63,37 @@ export class OllamaClient {
       parameters: data.parameters || '',
       license: data.license || '',
       capabilities: data.capabilities || [],
+      modelfile: data.modelfile || '',
     };
+  }
+
+  /**
+   * Extract the local GGUF blob file path from the modelfile's FROM line.
+   * Ollama's /api/show returns a modelfile with lines like:
+   *   FROM /path/to/blobs/sha256-<hex>
+   * @param {string} modelfile
+   * @returns {string|null} absolute file path, or null
+   */
+  static extractBlobPath(modelfile) {
+    if (!modelfile) return null;
+    const match = modelfile.match(/^FROM\s+(\/[^\s]+sha256-[0-9a-f]{64})/mi);
+    if (!match) return null;
+    return match[1];
+  }
+
+  /**
+   * Get the local blob file path for a model.
+   * @param {string} modelName
+   * @param {object} [showData] - pre-fetched showModel response
+   * @returns {Promise<string|null>}
+   */
+  async getBlobPath(modelName, showData = null) {
+    try {
+      const data = showData || await this.showModel(modelName);
+      return OllamaClient.extractBlobPath(data.modelfile);
+    } catch {
+      return null;
+    }
   }
 }
 
