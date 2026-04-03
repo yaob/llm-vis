@@ -280,11 +280,12 @@
     </div>
 
     <script type="module">
-        import { parseGGUF } from './src/parsers/gguf.js';
-        import { analyzeModel } from './src/model/analyzer.js';
-        import { renderModelView } from './src/viz/app-view.js';
-        import { OllamaClient } from './src/ollama/client.js';
-        import { adaptOllamaModel } from './src/model/ollama-adapter.js';
+        import { parseGGUF } from './src/parsers/gguf.js?v=2';
+        import { analyzeModel } from './src/model/analyzer.js?v=2';
+        import { renderModelView } from './src/viz/app-view.js?v=2';
+        import { OllamaClient } from './src/ollama/client.js?v=2';
+        import { adaptOllamaModel } from './src/model/ollama-adapter.js?v=2';
+        import { LazyFile } from './src/ollama/lazy-file.js?v=2';
 
         const dropArea = document.getElementById('dropArea');
         const fileInput = document.getElementById('fileInput');
@@ -429,6 +430,21 @@
 
             try {
                 const showData = await ollama.showModel(modelName);
+
+                // Try reading the GGUF blob from disk via local file proxy
+                const blobPath = await ollama.getBlobPath(modelName, showData);
+                if (blobPath) {
+                    try {
+                        status.textContent = 'Loading GGUF blob from disk...';
+                        const lazyFile = await LazyFile.create(blobPath, `ollama:${modelName}`);
+                        await processFile(lazyFile, { keepOllamaSelection: true });
+                        return;
+                    } catch (blobErr) {
+                        console.warn('Blob file load failed, falling back to metadata-only:', blobErr);
+                    }
+                }
+
+                // Fallback: metadata-only from /api/show
                 status.textContent = 'Analyzing model structure...';
                 const model = adaptOllamaModel(modelName, showData);
                 status.textContent = '';
@@ -457,11 +473,13 @@
         dropArea.addEventListener('drop', e => processFile(e.dataTransfer.files[0]));
         fileInput.addEventListener('change', () => { if (fileInput.files[0]) processFile(fileInput.files[0]); });
 
-        async function processFile(file) {
+        async function processFile(file, { keepOllamaSelection = false } = {}) {
             if (!file) return;
 
-            // Deselect any Ollama card
-            ollamaModelsEl.querySelectorAll('.ollama-model-card').forEach(c => c.classList.remove('selected'));
+            // Deselect any Ollama card (unless called from Ollama flow)
+            if (!keepOllamaSelection) {
+                ollamaModelsEl.querySelectorAll('.ollama-model-card').forEach(c => c.classList.remove('selected'));
+            }
 
             status.textContent = `Reading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)...`;
             status.className = '';
