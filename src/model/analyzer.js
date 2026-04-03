@@ -95,6 +95,9 @@ function toNum(v) {
   return Number(v) || 0;
 }
 
+// Exported for testing
+export { parseTensorName, normalizeComponent, toNum };
+
 export function analyzeModel(gguf) {
   const { metadata, tensors } = gguf;
 

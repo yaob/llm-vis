@@ -321,6 +321,9 @@ async function decodeTensorSlice(file, tensor, tensorDataStart, rowStart, rowCou
   return { cols, rows: rowCount, values, stats: computeStats(values) };
 }
 
+// Exported for testing
+export { fp16ToFloat, bf16ToFloat, computeStats, decodeRows };
+
 export async function decodeHeadSelection(model, decodePlan) {
   if (!decodePlan?.slices?.length) {
     return { status: 'unavailable', message: 'No tensor slice is available for this head selection.', warnings: [], slices: [] };
