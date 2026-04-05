@@ -10,7 +10,7 @@
  */
 
 import { createServer } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +61,7 @@ async function handleLocalFile(req, res) {
 
   const total = info.size;
 
-  // HEAD: return size only
+  // HEAD: return size only (stat already succeeded, no read needed)
   if (req.method === 'HEAD') {
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
@@ -70,6 +70,21 @@ async function handleLocalFile(req, res) {
     });
     res.end();
     return;
+  }
+
+  // Verify read access before sending success headers (macOS may EPERM on open)
+  let fd;
+  try {
+    fd = await open(resolved, 'r');
+  } catch (err) {
+    const isPerm = err.code === 'EPERM' || err.code === 'EACCES';
+    res.writeHead(isPerm ? 403 : 500);
+    res.end(isPerm
+      ? 'Permission denied: grant Full Disk Access to your terminal app in System Settings → Privacy & Security → Full Disk Access, then restart the server.'
+      : `Cannot read file: ${err.message}`);
+    return;
+  } finally {
+    if (fd) await fd.close();
   }
 
   const range = req.headers.range;
@@ -86,14 +101,24 @@ async function handleLocalFile(req, res) {
       'Content-Length': end - start + 1,
       'Accept-Ranges': 'bytes',
     });
-    createReadStream(resolved, { start, end }).pipe(res);
+    const stream = createReadStream(resolved, { start, end });
+    stream.on('error', (err) => {
+      console.error('Stream error:', err.message);
+      res.end();
+    });
+    stream.pipe(res);
   } else {
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': total,
       'Accept-Ranges': 'bytes',
     });
-    createReadStream(resolved).pipe(res);
+    const stream = createReadStream(resolved);
+    stream.on('error', (err) => {
+      console.error('Stream error:', err.message);
+      res.end();
+    });
+    stream.pipe(res);
   }
 }
 
@@ -122,11 +147,11 @@ async function handleStatic(req, res) {
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname === '/api/local-file') {
-    handleLocalFile(req, res);
-  } else {
-    handleStatic(req, res);
-  }
+  const handler = url.pathname === '/api/local-file' ? handleLocalFile : handleStatic;
+  handler(req, res).catch((err) => {
+    console.error('Request handler error:', err);
+    if (!res.headersSent) { res.writeHead(500); res.end('Internal server error'); }
+  });
 });
 
 server.listen(PORT, '127.0.0.1', () => {

@@ -123,7 +123,8 @@
         .head-stat-card span { display: block; font-size: 0.66rem; color: #8d99ad; text-transform: uppercase; letter-spacing: 0.4px; }
         .head-stat-card strong { display: block; margin-top: 4px; color: #fff; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
         .head-heatmap-wrap { background: #151922; border: 1px solid #313b4d; border-radius: 8px; padding: 8px; overflow: auto; }
-        .head-heatmap-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+        .head-heatmap-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; cursor: crosshair; }
+        .heatmap-tooltip { position: fixed; pointer-events: none; background: rgba(20,24,33,0.93); color: #e2e8f0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; padding: 4px 8px; border-radius: 5px; border: 1px solid #3a4560; white-space: nowrap; z-index: 9999; display: none; }
         .head-heatmap-caption { margin-top: 8px; color: #8f9bb0; font-size: 0.74rem; line-height: 1.4; }
         .head-heatmap-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 0; }
         .heatmap-page-btn { background: #2a3445; border: 1px solid #48576e; color: #c6cfdd; border-radius: 6px; padding: 5px 12px; font-size: 0.78rem; cursor: pointer; transition: background 0.15s; }
@@ -440,6 +441,12 @@
                         await processFile(lazyFile, { keepOllamaSelection: true });
                         return;
                     } catch (blobErr) {
+                        // Permission error → show actionable message, don't silently fall back
+                        if (blobErr.message && blobErr.message.includes('Permission denied')) {
+                            status.textContent = blobErr.message;
+                            status.className = 'error';
+                            return;
+                        }
                         console.warn('Blob file load failed, falling back to metadata-only:', blobErr);
                     }
                 }
