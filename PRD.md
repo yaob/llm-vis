@@ -1,8 +1,8 @@
-# LLM Visualizer — Product Requirements Document
+# LLM Inspector — Product Requirements Document
 
 ## Overview
 
-LLM Visualizer is a browser-based tool that lets you drag-and-drop a model file and instantly see its internal structure — layers, tensor shapes, parameter counts, quantization types, and architecture-aware dataflow diagrams. No server, no install, no dependencies. Everything runs client-side by parsing only the file header/metadata, so it works even with multi-gigabyte models.
+LLM Inspector is a browser-based tool that lets you drag-and-drop a model file and instantly see its internal structure — layers, tensor shapes, parameter counts, quantization types, and architecture-aware dataflow diagrams. No server, no install, no dependencies. Everything runs client-side by parsing only the file header/metadata, so it works even with multi-gigabyte models.
 
 ## Goals
 

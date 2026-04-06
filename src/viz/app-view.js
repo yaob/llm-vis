@@ -1,7 +1,9 @@
 import { renderResidualFlow } from './residual-flow.js';
+import { renderLayerComparison } from './layer-comparison.js';
 
 const VIEWS = [
   { id: 'architecture', label: 'Architecture', render: renderResidualFlow },
+  { id: 'layers', label: 'Layer Comparison', render: renderLayerComparison },
 ];
 
 function formatParams(value) {

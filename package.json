@@ -1,5 +1,5 @@
 {
-  "name": "llm-file-visualizer",
+  "name": "llm-inspector",
   "version": "1.0.0",
   "description": "Browser-based visualization tool for LLM files",
   "type": "module",

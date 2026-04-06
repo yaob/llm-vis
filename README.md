@@ -1,4 +1,4 @@
-# LLM Visualizer
+# LLM Inspector
 
 A browser-based tool for inspecting and visualizing the internal structure of Large Language Models. Drag-and-drop a GGUF file or connect to a local Ollama instance and instantly explore the model's architecture — layers, tensors, quantization, weight heatmaps, and dataflow diagrams. Everything runs client-side; no server, no uploads, no API keys.
 

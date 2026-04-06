@@ -155,7 +155,7 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`LLM Visualizer running at http://127.0.0.1:${PORT}`);
+  console.log(`LLM Inspector running at http://127.0.0.1:${PORT}`);
   console.log(`Serving static files from ${ROOT}`);
   console.log(`Local file proxy at /api/local-file?path=...`);
 });
