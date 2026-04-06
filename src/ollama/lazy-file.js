@@ -25,20 +25,28 @@ export class LazyFile {
    */
   static async create(localPath, name) {
     const url = `/api/local-file?path=${encodeURIComponent(localPath)}`;
-    // HEAD-like: fetch 0 bytes to get Content-Range with total size
-    const res = await fetch(url, { method: 'HEAD' });
-    if (!res.ok) {
-      // Fallback: try a Range request to get total size from Content-Range
-      const rangeRes = await fetch(url, { headers: { Range: 'bytes=0-0' } });
-      if (!rangeRes.ok) throw new Error(`Cannot access blob file: ${localPath}`);
-      const cr = rangeRes.headers.get('Content-Range') || '';
-      const m = cr.match(/\/(\d+)$/);
-      const size = m ? parseInt(m[1], 10) : 0;
-      if (!size) throw new Error(`Cannot determine size of blob file: ${localPath}`);
-      return new LazyFile(localPath, name, size);
+
+    // Probe with a small Range GET to verify both metadata AND read access.
+    // macOS may allow stat() but deny open() (EPERM) without Full Disk Access.
+    const probeRes = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+    if (probeRes.status === 403) {
+      const msg = await probeRes.text();
+      throw new Error(msg || 'Permission denied reading blob file. Grant Full Disk Access to your terminal app in System Settings → Privacy & Security.');
     }
-    // If HEAD is supported, use Content-Length
-    const size = parseInt(res.headers.get('Content-Length') || '0', 10);
+    if (!probeRes.ok && probeRes.status !== 206) {
+      throw new Error(`Cannot access blob file (HTTP ${probeRes.status}): ${localPath}`);
+    }
+
+    // HEAD to get total file size
+    const res = await fetch(url, { method: 'HEAD' });
+    if (res.ok) {
+      const size = parseInt(res.headers.get('Content-Length') || '0', 10);
+      if (size) return new LazyFile(localPath, name, size);
+    }
+    // Fallback: parse Content-Range from the probe response
+    const cr = probeRes.headers.get('Content-Range') || '';
+    const m = cr.match(/\/(\d+)$/);
+    const size = m ? parseInt(m[1], 10) : 0;
     if (!size) throw new Error(`Cannot determine size of blob file: ${localPath}`);
     return new LazyFile(localPath, name, size);
   }
@@ -54,7 +62,11 @@ export class LazyFile {
         const url = `/api/local-file?path=${encodeURIComponent(path)}`;
         return fetch(url, {
           headers: { Range: `bytes=${start}-${end - 1}` },
-        }).then(res => {
+        }).then(async res => {
+          if (res.status === 403) {
+            const msg = await res.text();
+            throw new Error(msg || 'Permission denied reading blob file.');
+          }
           if (!res.ok) throw new Error(`Failed to read bytes ${start}-${end} from ${path}`);
           return res.arrayBuffer();
         });

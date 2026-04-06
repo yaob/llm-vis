@@ -738,6 +738,32 @@ function createInfoBlock(className, title, message) {
   return block;
 }
 
+// Coolwarm diverging colormap (Moreland, 2009) — perceptually uniform.
+// 33 control points from -1 to +1, linearly interpolated.
+const COOLWARM = [
+  [59,76,192],[68,90,204],[77,104,215],[87,117,225],[98,130,234],
+  [108,142,241],[119,154,247],[130,165,251],[141,176,254],[152,185,255],
+  [163,194,255],[174,201,253],[184,208,249],[194,213,244],[204,217,238],
+  [213,219,230],[221,221,221],
+  [229,216,209],[236,211,197],[241,204,185],[245,196,173],[247,187,160],
+  [247,177,148],[247,166,135],[244,154,123],[241,141,111],[236,127,99],
+  [229,112,88],[222,96,77],[213,80,66],[203,62,56],[192,40,47],[180,4,38],
+];
+
+function coolwarmColor(t) {
+  // t in [-1, 1] → index into 33-entry table
+  const n = COOLWARM.length - 1; // 32
+  const pos = (t + 1) * 0.5 * n; // 0..32
+  const i = Math.max(0, Math.min(n - 1, Math.floor(pos)));
+  const f = pos - i;
+  const a = COOLWARM[i], b = COOLWARM[Math.min(i + 1, n)];
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * f),
+    Math.round(a[1] + (b[1] - a[1]) * f),
+    Math.round(a[2] + (b[2] - a[2]) * f),
+  ];
+}
+
 function createHeatmapCanvas(values, width, height, absMax) {
   const canvas = document.createElement('canvas');
   canvas.className = 'head-heatmap-canvas';
@@ -748,21 +774,49 @@ function createHeatmapCanvas(values, width, height, absMax) {
   const image = ctx.createImageData(width, height);
   for (let i = 0; i < values.length; i++) {
     const scaled = absMax ? values[i] / absMax : 0;
-    const magnitude = Math.sqrt(Math.min(1, Math.abs(scaled)));
-    const base = Math.round(248 - 150 * magnitude);
+    // sqrt scaling to boost visibility of small weights, preserve sign
+    const t = Math.sign(scaled) * Math.sqrt(Math.min(1, Math.abs(scaled)));
+    const [r, g, b] = coolwarmColor(t);
     const idx = i * 4;
-    if (scaled >= 0) {
-      image.data[idx] = 255;
-      image.data[idx + 1] = base;
-      image.data[idx + 2] = base;
-    } else {
-      image.data[idx] = base;
-      image.data[idx + 1] = Math.min(255, base + 12);
-      image.data[idx + 2] = 255;
-    }
+    image.data[idx] = r;
+    image.data[idx + 1] = g;
+    image.data[idx + 2] = b;
     image.data[idx + 3] = 255;
   }
   ctx.putImageData(image, 0, 0);
+
+  // Tooltip on hover
+  let tip = null;
+  function ensureTip() {
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'heatmap-tooltip';
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
+    const col = Math.floor((e.clientX - rect.left) * scaleX);
+    const row = Math.floor((e.clientY - rect.top) * scaleY);
+    if (col < 0 || col >= width || row < 0 || row >= height) {
+      if (tip) tip.style.display = 'none';
+      return;
+    }
+    const idx = row * width + col;
+    const val = values[idx];
+    const t = ensureTip();
+    t.textContent = `[${row}, ${col}] ${val.toFixed(6)}`;
+    t.style.display = 'block';
+    t.style.left = (e.clientX + 12) + 'px';
+    t.style.top = (e.clientY - 28) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => {
+    if (tip) tip.style.display = 'none';
+  });
+
   return canvas;
 }
 
@@ -788,7 +842,7 @@ function renderSelectedHeadDecode(host, model, selectedHeadDetail, onInvalidate,
 
   const intro = document.createElement('div');
   intro.className = 'head-decode-meta';
-  intro.textContent = `Best-effort dequantized values from ${state.sourceName || 'uploaded GGUF'}. Positive weights are red, negative weights are blue.`;
+  intro.textContent = `Best-effort dequantized values from ${state.sourceName || 'uploaded GGUF'}. Coolwarm colormap: positive weights are red, negative weights are blue, zero is gray.`;
   host.appendChild(intro);
 
   // Pagination controls
