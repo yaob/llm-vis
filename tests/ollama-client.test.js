@@ -67,6 +67,21 @@ FROM /opt/.ollama/models/blobs/sha256-222222222222222222222222222222222222222222
     const modelfile = 'FROM /data/.ollama/models/blobs/sha256-abcdef0123456789';
     assert.equal(OllamaClient.extractBlobPath(modelfile), null);
   });
+
+  it('handles Windows backslash paths', () => {
+    const modelfile = 'FROM C:\\Users\\testuser\\.ollama\\models\\blobs\\sha256-7cd4618c1faf8b7233c6c906dac1694b6a47684b37b8895d470ac688520b9c01';
+    assert.equal(OllamaClient.extractBlobPath(modelfile), 'C:\\Users\\testuser\\.ollama\\models\\blobs\\sha256-7cd4618c1faf8b7233c6c906dac1694b6a47684b37b8895d470ac688520b9c01');
+  });
+
+  it('handles Windows forward-slash paths', () => {
+    const modelfile = 'FROM C:/Users/testuser/.ollama/models/blobs/sha256-7cd4618c1faf8b7233c6c906dac1694b6a47684b37b8895d470ac688520b9c01';
+    assert.equal(OllamaClient.extractBlobPath(modelfile), 'C:/Users/testuser/.ollama/models/blobs/sha256-7cd4618c1faf8b7233c6c906dac1694b6a47684b37b8895d470ac688520b9c01');
+  });
+
+  it('handles Windows paths with a different drive letter', () => {
+    const modelfile = 'FROM D:\\ollama\\models\\blobs\\sha256-abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+    assert.equal(OllamaClient.extractBlobPath(modelfile), 'D:\\ollama\\models\\blobs\\sha256-abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789');
+  });
 });
 
 // ─── getBlobPath ────────────────────────────────────────────────────

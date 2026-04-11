@@ -70,13 +70,16 @@ export class OllamaClient {
   /**
    * Extract the local GGUF blob file path from the modelfile's FROM line.
    * Ollama's /api/show returns a modelfile with lines like:
-   *   FROM /path/to/blobs/sha256-<hex>
+   *   FROM /path/to/blobs/sha256-<hex>          (Unix)
+   *   FROM C:\path\to\blobs\sha256-<hex>        (Windows backslash)
+   *   FROM C:/path/to/blobs/sha256-<hex>        (Windows forward slash)
    * @param {string} modelfile
    * @returns {string|null} absolute file path, or null
    */
   static extractBlobPath(modelfile) {
     if (!modelfile) return null;
-    const match = modelfile.match(/^FROM\s+(\/[^\s]+sha256-[0-9a-f]{64})/mi);
+    // Match Unix absolute paths (/...) and Windows absolute paths (C:\... or C:/...)
+    const match = modelfile.match(/^FROM\s+((?:[A-Za-z]:[\/\\]|\/)[^\s]+sha256-[0-9a-f]{64})/mi);
     if (!match) return null;
     return match[1];
   }
