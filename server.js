@@ -49,7 +49,11 @@ async function handleLocalFile(req, res) {
   const home = process.env.HOME || process.env.USERPROFILE || '';
   const allowed = resolve(home, '.ollama');
   const resolved = resolve(filePath);
-  if (!resolved.startsWith(allowed)) {
+  // Windows paths are case-insensitive; normalise before comparing
+  const norm = process.platform === 'win32'
+    ? s => s.toLowerCase()
+    : s => s;
+  if (!norm(resolved).startsWith(norm(allowed))) {
     res.writeHead(403);
     res.end('Forbidden: only files under ~/.ollama are accessible');
     return;
@@ -126,7 +130,7 @@ async function handleLocalFile(req, res) {
 async function handleStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   let filePath = join(ROOT, decodeURIComponent(url.pathname));
-  if (filePath.endsWith('/')) filePath = join(filePath, 'index.html');
+  if (filePath.endsWith('/') || filePath.endsWith('\\')) filePath = join(filePath, 'index.html');
 
   const ext = extname(filePath);
   const mime = MIME[ext] || 'application/octet-stream';
