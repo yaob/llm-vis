@@ -20,19 +20,19 @@ A browser-based tool for inspecting and visualizing the internal structure of La
 
 ## Features
 
-- **GGUF file parsing** — reads the binary header, metadata, and tensor index without loading weights into memory, so it works with multi-gigabyte models
-- **Ollama integration** — auto-detects locally running Ollama and lists installed models for one-click inspection
-- **Architecture-aware residual flow diagrams** — interactive SVG dataflow visualizations for Attention, MLP, MoE (Mixture of Experts), and SSM (Mamba) blocks
-- **Weight heatmaps** — dequantizes and renders tensor slices as color-mapped heatmaps with paginated row navigation (supports F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K)
-- **Model summary card** — name, architecture, params, memory, blocks, embedding dim, heads, context length, vocab size, GQA ratio, head dimension
-- **Quantization profile** — visual distribution bar showing the percentage of each quant type across all tensors
-- **RoPE parameters** — frequency base, scaling type, and dimension count
-- **Tokenizer info** — model type (BPE/SPM), special token IDs (BOS/EOS/PAD), chat template presence
-- **FFN details** — hidden dimension, expansion ratio, activation function (SwiGLU, GeGLU, ReGLU)
-- **Norm type detection** — RMSNorm vs LayerNorm from architecture mapping
-- **Attention variants** — sliding window, cross-attention, layer norm epsilon
-- **Provenance metadata** — author, license, URL, description
-- **Raw metadata browser** — expandable table of all GGUF key-value pairs
+- 📦 **GGUF file parsing** — reads the binary header, metadata, and tensor index without loading weights into memory, so it works with multi-gigabyte models
+- 🦙 **Ollama integration** — auto-detects locally running Ollama and lists installed models for one-click inspection
+- 🧭 **Architecture-aware residual flow diagrams** — interactive SVG dataflow visualizations for Attention, MLP, MoE (Mixture of Experts), and SSM (Mamba) blocks
+- 🔥 **Weight heatmaps** — dequantizes and renders tensor slices as color-mapped heatmaps with paginated row navigation (supports F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K)
+- 📊 **Model summary card** — name, architecture, params, memory, blocks, embedding dim, heads, context length, vocab size, GQA ratio, head dimension
+- 🧮 **Quantization profile** — visual distribution bar showing the percentage of each quant type across all tensors
+- 🪢 **RoPE parameters** — frequency base, scaling type, and dimension count
+- 🔤 **Tokenizer info** — model type (BPE/SPM), special token IDs (BOS/EOS/PAD), chat template presence
+- ⚙️ **FFN details** — hidden dimension, expansion ratio, activation function (SwiGLU, GeGLU, ReGLU)
+- 🧱 **Norm type detection** — RMSNorm vs LayerNorm from architecture mapping
+- 👁️ **Attention variants** — sliding window, cross-attention, layer norm epsilon
+- 📝 **Provenance metadata** — author, license, URL, description
+- 🗂️ **Raw metadata browser** — expandable table of all GGUF key-value pairs
 
 ## Getting Started
 
@@ -55,7 +55,7 @@ Then open [http://localhost:8088](http://localhost:8088) in your browser.
 
 **Option A — GGUF file upload**: Drag-and-drop a `.gguf` file onto the upload area (or click to browse). Only the header is read; the full file is not loaded into memory.
 
-**Option B — Ollama**: If [Ollama](https://ollama.com/) is running locally on port 11434, installed models appear automatically. Click any model card to inspect it. (Weight heatmaps require a GGUF file upload.)
+**Option B — Ollama**: If [Ollama](https://ollama.com/) is running locally on port 11434, installed models appear automatically. Click any model card to inspect it.
 
 ## Running Tests
 
