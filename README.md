@@ -6,9 +6,16 @@ A browser-based tool for inspecting and visualizing the internal structure of La
 
 ## Screenshots
 
+### Block detail view with weight heatmap
+
 <p align="center">
-  <img src="docs/screenshots/image1.png" alt="Block detail view with weight heatmap" width="48%" />
-  <img src="docs/screenshots/image3.png" alt="Model architecture with blocks and subcomponents" width="48%" />
+  <img src="docs/screenshots/image1.png" alt="Block detail view with weight heatmap" width="90%" />
+</p>
+
+### Model architecture with blocks and subcomponents
+
+<p align="center">
+  <img src="docs/screenshots/image3.png" alt="Model architecture with blocks and subcomponents" width="90%" />
 </p>
 
 ## Features
