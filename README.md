@@ -4,6 +4,20 @@ A browser-based tool for inspecting and visualizing the internal structure of La
 
 > **Try it now** — clone the repo, run `npm start`, and drop any `.gguf` file onto the page.
 
+## Screenshots
+
+### App view 1
+
+![LLM Inspector screenshot 1](docs/screenshots/image1.png)
+
+### App view 2
+
+![LLM Inspector screenshot 2](docs/screenshots/image2.png)
+
+### App view 3
+
+![LLM Inspector screenshot 3](docs/screenshots/image3.png)
+
 ## Features
 
 - **GGUF file parsing** — reads the binary header, metadata, and tensor index without loading weights into memory, so it works with multi-gigabyte models
@@ -29,13 +43,13 @@ A browser-based tool for inspecting and visualizing the internal structure of La
 ### Install & Run
 
 ```bash
-git clone https://github.com/yaob/llm-vis.git
-cd llm-vis
+git clone https://github.com/yaob/llm-inspector.git
+cd llm-inspector
 npm install
 npm start
 ```
 
-Then open [http://localhost:8080](http://localhost:8080) in your browser.
+Then open [http://localhost:8088](http://localhost:8088) in your browser.
 
 ### Load a Model
 

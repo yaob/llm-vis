@@ -143,33 +143,20 @@ function getBlockProfile(layer, activationFunction) {
     };
   }
 
-  const hasAttentionSSMMLP = hasAttention && hasSSM && hasMLP;
   const detailRows = [];
-  if (hasAttentionSSMMLP) {
+  if (hasAttention) {
     detailRows.push({
       label: 'Attention path',
       layout: 'attention-qkv',
       attentionDetail,
     });
+  }
+  if (hasSSM) {
     detailRows.push({
       label: 'State path',
       layout: 'ssm',
       ssmDetail,
     });
-  } else if (hasAttention || hasSSM) {
-    if (hasSSM) {
-      detailRows.push({
-        label: 'State path',
-        layout: 'ssm',
-        ssmDetail,
-      });
-    } else {
-      detailRows.push({
-        label: 'Attention path',
-        layout: 'attention-qkv',
-        attentionDetail,
-      });
-    }
   }
   if (hasMoE) {
     detailRows.push({
@@ -191,10 +178,15 @@ function getBlockProfile(layer, activationFunction) {
     });
   }
 
+  const hasAttentionSSMMLP = hasAttention && hasSSM && hasMLP;
   let pattern = 'Residual block';
   if (hasAttentionSSMMLP) pattern = 'Attention • SSM • MLP';
+  else if (hasAttention && hasSSM && hasMoE) pattern = 'Attention • SSM • MoE';
   else if (hasAttention && hasMoE) pattern = 'Attention • MoE';
   else if (hasAttention && hasMLP) pattern = 'Attention • MLP';
+  else if (hasAttention && hasSSM) pattern = 'Attention • SSM';
+  else if (hasSSM && hasMoE) pattern = 'SSM • MoE';
+  else if (hasSSM && hasMLP) pattern = 'SSM • MLP';
   else if (hasSSM) pattern = 'SSM block';
   else if (hasMoE) pattern = 'MoE block';
 

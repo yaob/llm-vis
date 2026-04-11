@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js 8080",
+    "start": "node server.js 8088",
     "build": "webpack --mode production",
     "dev": "webpack serve --mode development"
   },
