@@ -57,41 +57,6 @@ Then open [http://localhost:8088](http://localhost:8088) in your browser.
 
 **Option B — Ollama**: If [Ollama](https://ollama.com/) is running locally on port 11434, installed models appear automatically. Click any model card to inspect it.
 
-## Running Tests
-
-Tests use the Node.js built-in test runner — no extra dependencies needed:
-
-```bash
-node --test tests/*.test.js
-```
-
-A GitHub Actions workflow runs these automatically on every pull request to `main`.
-
-## Project Structure
-
-```
-index.html                      Entry point and UI shell
-src/
-  parsers/
-    gguf.js                     GGUF binary parser (header + metadata + tensor info)
-  model/
-    analyzer.js                 Group tensors → normalized model tree
-    gguf-tensor-decoder.js      Dequantize tensor slices for heatmaps
-    residual-flow-graph.js      Build residual dataflow graph from model
-    ollama-adapter.js           Adapt Ollama /api/show response to model format
-  ollama/
-    client.js                   Ollama HTTP API client
-  viz/
-    app-view.js                 Top-level view: summary card + view tabs
-    residual-flow.js            SVG residual flow renderer (attention, MLP, MoE, SSM)
-    layer-stack.js              Vertical layer stack visualization
-tests/
-  analyzer.test.js              Tensor name parsing, value coercion, component aliases
-  gguf.test.js                  Tensor byte size calculations
-  tensor-decoder.test.js        FP16/BF16 conversion, stats, row decoders
-.github/workflows/test.yml      CI workflow
-```
-
 ## License
 
 MIT
