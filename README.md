@@ -55,7 +55,7 @@ Then open [http://localhost:8088](http://localhost:8088) in your browser.
 
 **Option A — GGUF file upload**: Drag-and-drop a `.gguf` file onto the upload area (or click to browse). Only the header is read; the full file is not loaded into memory.
 
-**Option B — Ollama**: If [Ollama](https://ollama.com/) is running locally on port 11434, installed models appear automatically. Click any model card to inspect it. (Weight heatmaps require a GGUF file upload.)
+**Option B — Ollama**: If [Ollama](https://ollama.com/) is running locally on port 11434, installed models appear automatically. Click any model card to inspect it.
 
 ## Running Tests
 
