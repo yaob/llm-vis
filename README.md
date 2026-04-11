@@ -6,17 +6,10 @@ A browser-based tool for inspecting and visualizing the internal structure of La
 
 ## Screenshots
 
-### App view 1
-
-![LLM Inspector screenshot 1](docs/screenshots/image1.png)
-
-### App view 2
-
-![LLM Inspector screenshot 2](docs/screenshots/image2.png)
-
-### App view 3
-
-![LLM Inspector screenshot 3](docs/screenshots/image3.png)
+<p align="center">
+  <img src="docs/screenshots/image1.png" alt="Block detail view with weight heatmap" width="48%" />
+  <img src="docs/screenshots/image3.png" alt="Model architecture with blocks and subcomponents" width="48%" />
+</p>
 
 ## Features
 
