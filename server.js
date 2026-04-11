@@ -15,7 +15,7 @@ import { createReadStream } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PORT = parseInt(process.argv[2] || '8080', 10);
+const PORT = parseInt(process.argv[2] || '8088', 10);
 const ROOT = resolve(fileURLToPath(import.meta.url), '..');
 
 const MIME = {

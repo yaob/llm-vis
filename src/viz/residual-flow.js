@@ -2802,7 +2802,7 @@ function drawDetailPanel(camera, stage, contentWidth, selectedHead = null, onSel
   const mlpRow = stage.detailRows.find((row) => row.layout === 'mlp' && row.mlpDetail);
   const moeRow = stage.detailRows.find((row) => isMoERow(row));
   const renderParallelAttnSSMMLP = !!(attentionRow && ssmRow && mlpRow);
-  const renderSequentialAttnMoE = !!(!renderParallelAttnSSMMLP && attentionRow && moeRow);
+  const renderSequentialAttnMoE = !!(!renderParallelAttnSSMMLP && attentionRow && moeRow && !ssmRow && !mlpRow);
   const renderSequentialAttnMLP = !!(!renderParallelAttnSSMMLP && !renderSequentialAttnMoE && attentionRow && mlpRow);
   const renderSequentialSSMMLP = !!(!renderParallelAttnSSMMLP && !renderSequentialAttnMoE && !renderSequentialAttnMLP && ssmRow && mlpRow);
 
