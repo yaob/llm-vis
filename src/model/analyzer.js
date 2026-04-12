@@ -218,7 +218,8 @@ export function analyzeModel(gguf) {
   }
 
   const totalParams = tensors.reduce((s, t) => s + t.numElements, 0);
-  const totalMemory = tensors.reduce((s, t) => s + (t.memoryBytes || 0), 0);
+  const analyzedTensors = [...baseLayers, ...[...blocks.values()].flat()];
+  const totalMemory = sumMem(analyzedTensors);
 
   // Quantization profile: count tensors and bytes per quant type
   const quantCounts = {};
