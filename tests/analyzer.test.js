@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTensorName, normalizeComponent, toNum } from '../src/model/analyzer.js';
+import { analyzeModel, parseTensorName, normalizeComponent, toNum } from '../src/model/analyzer.js';
 
 // ─── parseTensorName ────────────────────────────────────────────────
 
@@ -131,6 +131,49 @@ describe('toNum', () => {
 
   it('returns 0 for empty array', () => {
     assert.equal(toNum([]), 0);
+  });
+});
+
+describe('analyzeModel', () => {
+  it('computes non-zero quantization percentages from tensor memory usage', () => {
+    const model = analyzeModel({
+      version: 3,
+      metadata: {
+        'general.architecture': 'llama',
+        'general.name': 'Quant Test',
+        'llama.block_count': 0,
+        'llama.embedding_length': 64,
+      },
+      tensors: [
+        {
+          name: 'token_embd.weight',
+          type: 1,
+          typeName: 'F16',
+          numElements: 10,
+          dimensions: [10],
+        },
+        {
+          name: 'output.weight',
+          type: 8,
+          typeName: 'Q8_0',
+          numElements: 32,
+          dimensions: [32],
+        },
+      ],
+    });
+
+    assert.equal(model.totalMemory, 54);
+    assert.equal(model.quantProfile.length, 2);
+
+    const f16 = model.quantProfile.find((entry) => entry.type === 'F16');
+    const q80 = model.quantProfile.find((entry) => entry.type === 'Q8_0');
+
+    assert.ok(f16);
+    assert.ok(q80);
+    assert.ok(f16.pct > 0);
+    assert.ok(q80.pct > 0);
+    assert.ok(Math.abs(f16.pct - (20 / 54)) < 1e-12);
+    assert.ok(Math.abs(q80.pct - (34 / 54)) < 1e-12);
   });
 });
 
